@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mard 221 高精拼豆图纸生成器 (高亮框选改色版)</title>
+    <title>Mard 221 高精拼豆图纸生成器 (精准高亮框选版)</title>
     <!-- 引入前端 AI 人脸检测库 -->
     <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
     <style>
@@ -150,7 +150,7 @@
             font-size: 0.85rem;
         }
         .grid-container-wrapper {
-            position: relative; /* 用于框选框定位 */
+            position: relative;
             overflow: auto;
             max-width: 100%;
             max-height: 65vh;
@@ -486,7 +486,7 @@
         </div>
 
         <div class="multi-select-bar" id="multiSelectBar">
-            <div class="multi-info" id="multiSelectInfo">🎨 改色模式：按住 A 键拖拽划选，或按住 S 键拖拽拉出橙色框选中高亮格子</div>
+            <div class="multi-info" id="multiSelectInfo">🎨 多格子改色模式：按住 A 划选，按住 S 框选高亮格子</div>
             <div class="multi-controls">
                 <button id="selectAllSameBtn" style="background:#f39c12; color:white; padding:6px 10px; margin-top:0; width:auto;">全选当前高亮</button>
                 <select id="multiTargetColorSelect"></select>
@@ -496,7 +496,6 @@
         </div>
 
         <div class="grid-container-wrapper" id="gridWrapper">
-            <!-- 橙色半透明框选框 -->
             <div id="selectionBox"></div>
             <div id="beadGridTransform">
                 <div class="grid-with-axis" id="gridWithAxis">
@@ -508,7 +507,7 @@
             </div>
         </div>
 
-        <h2>📊 拼豆用量统计 (点击高亮某种颜色；双击高亮格子进入改色模式)</h2>
+        <h2>📊 拼豆用量统计 (单击格子高亮；高亮后再双击进入多格子改色)</h2>
         <div class="palette-stats" id="paletteStats"></div>
     </div>
 </div>
@@ -890,6 +889,7 @@ function reduceColorsToK(rawPixels, k, algo) {
     return Array.from(finalPaletteMap);
 }
 
+// 激活或清除高亮模式
 function toggleHighlight(code) {
     if (isMultiSelectMode) return;
 
@@ -930,14 +930,13 @@ function exitMultiSelectMode() {
     document.getElementById('multiSelectBar').classList.remove('active');
 }
 
-// 核心规则判断：只有高亮状态下的格子才允许被选中！
+// 核心规则判断：处于高亮状态时，只允许选择与 activeHighlightCode 匹配的高亮格子
 function isCellSelectable(cell) {
     if (!cell) return false;
     if (activeHighlightCode !== null) {
         return cell.dataset.code === activeHighlightCode;
     }
-    // 未设置高亮时拦截变暗格子
-    return !cell.classList.contains('dimmed');
+    return false;
 }
 
 function addSelectCell(cell) {
@@ -951,7 +950,7 @@ function addSelectCell(cell) {
 }
 
 function updateMultiSelectUI() {
-    document.getElementById('multiSelectInfo').innerText = `🎨 改色模式：已选中 ${selectedCells.size} 个高亮格子 (按 A 划选 / 按 S 框选)`;
+    document.getElementById('multiSelectInfo').innerText = `🎨 多格子改色模式：已选中 ${selectedCells.size} 个高亮格子 (按 A 划选 / 按 S 框选)`;
 }
 
 // 键盘按键监听 (A 键与 S 键)
@@ -988,7 +987,7 @@ const selectionBox = document.getElementById('selectionBox');
 gridWrapper.addEventListener('mousedown', (e) => {
     isMouseDown = true;
 
-    // 需求 3：在改色模式下，按住 S 键拉出橙色半透明框框
+    // 改色模式下按住 S 键拉框
     if (isMultiSelectMode && isSPressed) {
         isSelectingBox = true;
         const rect = gridWrapper.getBoundingClientRect();
@@ -1001,14 +1000,13 @@ gridWrapper.addEventListener('mousedown', (e) => {
         selectionBox.style.height = '0px';
         selectionBox.style.display = 'block';
 
-        e.preventDefault(); // 防止拖拽文本选中
+        e.preventDefault();
     }
 });
 
 window.addEventListener('mousemove', (e) => {
     if (!isMouseDown) return;
 
-    // S 键框选拉动中
     if (isSelectingBox) {
         const rect = gridWrapper.getBoundingClientRect();
         const currentX = e.clientX - rect.left + gridWrapper.scrollLeft;
@@ -1024,14 +1022,12 @@ window.addEventListener('mousemove', (e) => {
         selectionBox.style.width = `${width}px`;
         selectionBox.style.height = `${height}px`;
 
-        // 碰撞检测：框内的【高亮格子】会被选中
         const boxRect = selectionBox.getBoundingClientRect();
         const cells = document.querySelectorAll('.cell');
 
         cells.forEach(cell => {
             if (isCellSelectable(cell)) {
                 const cRect = cell.getBoundingClientRect();
-                // 判断重叠 (Overlap)
                 const isIntersect = !(cRect.right < boxRect.left || 
                                       cRect.left > boxRect.right || 
                                       cRect.bottom < boxRect.top || 
@@ -1052,10 +1048,9 @@ window.addEventListener('mouseup', () => {
     }
 });
 
-// 全选当前高亮格子
 document.getElementById('selectAllSameBtn').addEventListener('click', () => {
     if (!activeHighlightCode) {
-        alert("提示：请先在下方【拼豆用量统计】中点击某种颜色高亮它！");
+        alert("提示：请先单击某个格子激活颜色高亮！");
         return;
     }
     const cells = document.querySelectorAll('.cell');
@@ -1068,7 +1063,7 @@ document.getElementById('selectAllSameBtn').addEventListener('click', () => {
 
 document.getElementById('applyMultiChangeBtn').addEventListener('click', () => {
     if (selectedCells.size === 0) {
-        alert("请先选择至少一个高亮格子！");
+        alert("请先选中至少一个高亮格子！");
         return;
     }
 
@@ -1333,31 +1328,36 @@ document.getElementById('processBtn').addEventListener('click', async () => {
             if (showText) cell.innerText = matchedColor.code;
             cell.title = `坐标: (${x + 1}, ${y + 1})\n色号: ${matchedColor.code}${pixel.isInsideFace ? ' (👤人脸保护区域)' : ''}`;
 
-            // 单击：高亮某色 / 改色模式下点选
+            // 1. 单击：触发全图同色格子高亮
             cell.addEventListener('click', () => {
                 if (!isMultiSelectMode) {
                     toggleHighlight(cell.dataset.code);
                 }
             });
 
-            // 需求 2：改色模式下，鼠标滑过 + 按住 A 键才选中
+            // 2. 改色模式下划选：仅限按住 A 键
             cell.addEventListener('mouseenter', () => {
                 if (isMultiSelectMode && isMouseDown && isAPressed) {
                     addSelectCell(cell);
                 }
             });
 
-            // 需求 1：只有双击高亮格子才进入多选改色模式，并选中当前格子
+            // 3. 双击触发判断：
+            // - 若处于“高亮模式”，双击“高亮格子”进入多格改色模式
+            // - 若处于“默认模式”（无高亮），双击修改该单格颜色
             cell.addEventListener('dblclick', (e) => {
                 e.stopPropagation();
-                if (isCellSelectable(cell)) {
-                    if (!isMultiSelectMode) {
-                        enterMultiSelectMode(cell);
-                    } else {
-                        addSelectCell(cell);
+                if (activeHighlightCode !== null) {
+                    // 只有高亮状态下双击高亮格子才会进入多格改色
+                    if (isCellSelectable(cell)) {
+                        if (!isMultiSelectMode) {
+                            enterMultiSelectMode(cell);
+                        } else {
+                            addSelectCell(cell);
+                        }
                     }
                 } else {
-                    // 如果不是高亮格子，弹出单格修改
+                    // 无高亮模式下双击改该单格颜色
                     currentEditingCell = cell;
                     document.getElementById('modalColorSelect').value = cell.dataset.code;
                     document.getElementById('colorModal').style.display = 'flex';
