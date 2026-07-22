@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mard 221 高精拼豆图纸生成器 (色彩精简聚类版)</title>
+    <title>Mard 221 高精拼豆图纸生成器 (抗网格滤波精细版)</title>
+    <!-- 引入前端 AI 人脸检测库 -->
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
     <style>
         :root {
             --bg-color: #f4f6f9;
@@ -333,10 +335,23 @@
         .modal-card select { margin-bottom: 15px; }
         .modal-btns { display: flex; gap: 10px; }
 
-        /* 算法控制盒样式 */
         .algo-box {
             background: #eef5ff;
             border: 1px solid #b3d4fc;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+        }
+        .face-box {
+            background: #fff3e0;
+            border: 1px solid #ffe0b2;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+        }
+        .degrid-box {
+            background: #e8f8f5;
+            border: 1px solid #a3e4d7;
             padding: 10px;
             border-radius: 8px;
             margin-bottom: 12px;
@@ -357,29 +372,47 @@
         <div class="form-group">
             <label>2. 原图模式</label>
             <select id="sampleMode">
-                <option value="has_grid">图片自带黑框网格（过滤边框）</option>
+                <option value="has_grid" selected>图片自带黑/灰框网格（智能滤波）</option>
                 <option value="smooth">普通无网格图片（全域平滑）</option>
             </select>
         </div>
 
+        <!-- 智能抗网格污染采样框 -->
+        <div class="degrid-box">
+            <div class="form-group" style="margin-bottom: 4px;">
+                <label style="color: #117a65;">🛡️ 抗网格线干扰过滤</label>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label style="font-weight: normal; font-size: 0.8rem;">剔除最暗黑线比例 (%):</label>
+                <input type="number" id="darkCutoffInput" value="35" min="0" max="60" placeholder="默认 35%">
+            </div>
+        </div>
+
+        <div class="face-box">
+            <div class="form-group" style="margin-bottom: 6px;">
+                <label style="color: #e65100;">
+                    <input type="checkbox" id="enableFaceDetection" checked> 👤 开启 AI 人脸识别保护
+                </label>
+            </div>
+        </div>
+
         <div class="form-group">
-            <label>3. 色彩感知精度引擎</label>
+            <label>3. 背景色彩感知算法</label>
             <select id="algorithmSelect">
                 <option value="ciede2000">💎 CIEDE2000 超精细人眼感知算法</option>
                 <option value="cielab">⚡ CIELAB 标准算法</option>
             </select>
         </div>
 
-        <!-- 新增算法限制：直接输入色号数量 -->
         <div class="algo-box">
             <div class="form-group" style="margin-bottom: 6px;">
                 <label style="color: #1b4f72;">
-                    <input type="checkbox" id="enableColorLimit"> 🧩 开启色彩数量精简(聚类)算法
+                    <input type="checkbox" id="enableColorLimit"> 🧩 开启背景色彩聚类精简
                 </label>
             </div>
             <div class="form-group" id="limitCountGroup" style="margin-bottom: 0;">
-                <label>目标最多使用颜色数（输入数字）：</label>
-                <input type="number" id="maxColorInput" value="20" min="2" max="100" placeholder="直接输入数字，例如 20">
+                <label>目标最多使用颜色数：</label>
+                <input type="number" id="maxColorInput" value="20" min="2" max="100" placeholder="例如 20">
             </div>
         </div>
 
@@ -390,7 +423,7 @@
                 <option value="E14">E14 (暖粉白/白皙)</option>
                 <option value="E16">E16 (冷白肉粉)</option>
                 <option value="E11">E11 (暖粉肤色)</option>
-                <option value="F14">F14 (嫩嫩肉粉)</option>
+                <option value="F14" selected>F14 (嫩嫩肉粉)</option>
                 <option value="F16">F16 (自然浅肤)</option>
                 <option value="F17">F17 (暖小麦肤)</option>
                 <option value="F20">F20 (灰调阴影肤)</option>
@@ -401,8 +434,8 @@
         <div class="form-group">
             <label>5. 列数 (Width) / 行数 (Height)</label>
             <div style="display: flex; gap: 8px;">
-                <input type="number" id="gridWidth" value="24" min="5" max="100">
-                <input type="number" id="gridHeight" value="24" min="5" max="100">
+                <input type="number" id="gridWidth" value="30" min="5" max="100">
+                <input type="number" id="gridHeight" value="30" min="5" max="100">
             </div>
         </div>
 
@@ -437,7 +470,6 @@
             </div>
         </div>
 
-        <!-- 多选修改工具浮条 -->
         <div class="multi-select-bar" id="multiSelectBar">
             <div class="multi-info" id="multiSelectInfo">🎨 多选模式：按住 [A 键] + 鼠标滑动可快速框选格子</div>
             <div class="multi-controls">
@@ -498,7 +530,17 @@
 </div>
 
 <script>
-// Mard 221 全套核心色号库
+let isFaceModelLoaded = false;
+async function loadModels() {
+    try {
+        await faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/');
+        isFaceModelLoaded = true;
+    } catch(e) {
+        console.warn("人脸模型在线加载失败，自动降级为标准模式", e);
+    }
+}
+loadModels();
+
 const MARD_PALETTE = [
     { code: "A1", r: 250, g: 244, b: 200 }, { code: "A4", r: 251, g: 237, b: 86 },
     { code: "A11", r: 255, g: 221, b: 153 },
@@ -663,6 +705,78 @@ function ciede2000(lab1, lab2) {
     );
 }
 
+// 核心功能点：抗网格污染的高精像素采样函数
+function sampleCellColorDeGrid(ctx, sampleX, sampleY, sampleW, sampleH, isGridMode, cutoffPercent = 35) {
+    const imgData = ctx.getImageData(sampleX, sampleY, sampleW, sampleH).data;
+    const pixelList = [];
+
+    const centerX = sampleW / 2;
+    const centerY = sampleH / 2;
+    const maxDist = Math.sqrt(centerX * centerX + centerY * centerY) || 1;
+
+    for (let i = 0; i < imgData.length; i += 4) {
+        const a = imgData[i + 3];
+        if (a > 128) {
+            const r = imgData[i];
+            const g = imgData[i + 1];
+            const b = imgData[i + 2];
+
+            // 计算相对灰度/亮度
+            const brightness = 0.299 * r + 0.587 * g + 0.114 * b;
+
+            // 计算中心高斯权重（越靠近格子中心，权重越高，避开网格边缘）
+            const pixelIdx = i / 4;
+            const px = pixelIdx % sampleW;
+            const py = Math.floor(pixelIdx / sampleW);
+            const distToCenter = Math.sqrt(Math.pow(px - centerX, 2) + Math.pow(py - centerY, 2));
+            const weight = Math.max(0.1, 1 - (distToCenter / maxDist) * 0.6);
+
+            pixelList.push({ r, g, b, brightness, weight });
+        }
+    }
+
+    if (pixelList.length === 0) return { r: 255, g: 255, b: 255 };
+
+    if (isGridMode) {
+        // 抗网格核心逻辑：按亮度排序，过滤掉最暗的前 X% (网格线条)
+        pixelList.sort((a, b) => a.brightness - b.brightness);
+        const cutIndex = Math.floor(pixelList.length * (cutoffPercent / 100));
+        const filteredList = pixelList.slice(cutIndex);
+
+        if (filteredList.length === 0) return { r: pixelList[pixelList.length - 1].r, g: pixelList[pixelList.length - 1].g, b: pixelList[pixelList.length - 1].b };
+
+        // 加权求和求真实颜色
+        let totalR = 0, totalG = 0, totalB = 0, totalWeight = 0;
+        filteredList.forEach(p => {
+            totalR += p.r * p.weight;
+            totalG += p.g * p.weight;
+            totalB += p.b * p.weight;
+            totalWeight += p.weight;
+        });
+
+        return {
+            r: Math.round(totalR / totalWeight),
+            g: Math.round(totalG / totalWeight),
+            b: Math.round(totalB / totalWeight)
+        };
+    } else {
+        // 普通平滑模式：全局加权
+        let totalR = 0, totalG = 0, totalB = 0, totalWeight = 0;
+        pixelList.forEach(p => {
+            totalR += p.r * p.weight;
+            totalG += p.g * p.weight;
+            totalB += p.b * p.weight;
+            totalWeight += p.weight;
+        });
+
+        return {
+            r: Math.round(totalR / totalWeight),
+            g: Math.round(totalG / totalWeight),
+            b: Math.round(totalB / totalWeight)
+        };
+    }
+}
+
 function getNearestMardColor(r, g, b, algo, selectedSkinCode, candidatePalette = MARD_PALETTE) {
     const lab1 = rgbToLab(r, g, b);
     let minDistance = Infinity;
@@ -698,11 +812,9 @@ function getNearestMardColor(r, g, b, algo, selectedSkinCode, candidatePalette =
     return closestColor;
 }
 
-// K-Means 色彩聚类算法：将原始提取的多元色彩整合合并为 K 种最佳 Mard 色号
 function reduceColorsToK(rawPixels, k, algo) {
     if (rawPixels.length === 0) return [];
     
-    // 1. 获取所有出现的匹配 Mard 色号频次
     const counts = {};
     rawPixels.forEach(p => {
         const code = p.matched.code;
@@ -714,14 +826,12 @@ function reduceColorsToK(rawPixels, k, algo) {
         return uniqueCodes.map(code => MARD_PALETTE.find(c => c.code === code));
     }
 
-    // 2. 选出频次最高的前 K 个颜色作为初始聚类中心
     uniqueCodes.sort((a, b) => counts[b] - counts[a]);
     let centroids = uniqueCodes.slice(0, k).map(code => {
         const c = MARD_PALETTE.find(item => item.code === code);
         return { r: c.r, g: c.g, b: c.b };
     });
 
-    // 3. 迭代 K-Means (10次即可收敛)
     for (let iter = 0; iter < 10; iter++) {
         const clusters = Array.from({ length: k }, () => []);
         
@@ -743,7 +853,6 @@ function reduceColorsToK(rawPixels, k, algo) {
             clusters[bestClusterIdx].push(pixel);
         });
 
-        // 重新计算中心点
         centroids = clusters.map((cluster, idx) => {
             if (cluster.length === 0) return centroids[idx];
             let sumR = 0, sumG = 0, sumB = 0;
@@ -760,7 +869,6 @@ function reduceColorsToK(rawPixels, k, algo) {
         });
     }
 
-    // 4. 将算出的中心点映射到最接近的真实 Mard 色号
     const finalPaletteMap = new Set();
     centroids.forEach(cent => {
         const mard = getNearestMardColor(cent.r, cent.g, cent.b, algo, 'AUTO', MARD_PALETTE);
@@ -833,7 +941,6 @@ function updateMultiSelectUI() {
     document.getElementById('multiSelectInfo').innerText = `🎨 多选改色模式：已选中 ${selectedCells.size} 个格子 (按住 A 键+鼠标滑动框选)`;
 }
 
-// 键盘按住 A 键多选
 window.addEventListener('keydown', (e) => {
     if (e.key.toLowerCase() === 'a' && !isAPressed) {
         if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
@@ -1030,7 +1137,7 @@ function updateThickGridDisplay() {
 document.getElementById('toggleThickGrid').addEventListener('change', updateThickGridDisplay);
 document.getElementById('thickStepInput').addEventListener('input', updateThickGridDisplay);
 
-document.getElementById('processBtn').addEventListener('click', () => {
+document.getElementById('processBtn').addEventListener('click', async () => {
     const fileInput = document.getElementById('imageInput');
     if (!fileInput.files[0]) {
         alert("请先上传参考图片！");
@@ -1040,6 +1147,7 @@ document.getElementById('processBtn').addEventListener('click', () => {
     const gridW = parseInt(document.getElementById('gridWidth').value);
     const gridH = parseInt(document.getElementById('gridHeight').value);
     const mode = document.getElementById('sampleMode').value;
+    const darkCutoffPercent = parseFloat(document.getElementById('darkCutoffInput').value) || 35;
     const algo = document.getElementById('algorithmSelect').value;
     const selectedSkinCode = document.getElementById('skinColorSelect').value;
     const showText = document.getElementById('toggleText').checked;
@@ -1048,11 +1156,12 @@ document.getElementById('processBtn').addEventListener('click', () => {
 
     const enableLimit = document.getElementById('enableColorLimit').checked;
     const maxColorNum = parseInt(document.getElementById('maxColorInput').value) || 20;
+    const enableFace = document.getElementById('enableFaceDetection').checked;
 
     const img = new Image();
     img.src = URL.createObjectURL(fileInput.files[0]);
 
-    img.onload = () => {
+    img.onload = async () => {
         exitMultiSelectMode();
         buildAxesAndGrid(gridW, gridH);
 
@@ -1062,58 +1171,45 @@ document.getElementById('processBtn').addEventListener('click', () => {
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0);
 
+        let faceBoxes = [];
+        if (enableFace && isFaceModelLoaded) {
+            const detections = await faceapi.detectAllFaces(img, new faceapi.TinyFaceDetectorOptions());
+            faceBoxes = detections.map(d => d.box);
+        }
+
         const cellWidth = img.width / gridW;
         const cellHeight = img.height / gridH;
 
-        // 1. 采集全图原始 RGB 点数据
         const rawPixels = [];
         for (let y = 0; y < gridH; y++) {
             for (let x = 0; x < gridW; x++) {
-                let sampleX, sampleY, sampleW, sampleH;
+                const sampleX = Math.floor(x * cellWidth);
+                const sampleY = Math.floor(y * cellHeight);
+                const sampleW = Math.max(1, Math.floor(cellWidth));
+                const sampleH = Math.max(1, Math.floor(cellHeight));
 
-                if (mode === 'has_grid') {
-                    sampleX = Math.floor(x * cellWidth + cellWidth * 0.325);
-                    sampleY = Math.floor(y * cellHeight + cellHeight * 0.325);
-                    sampleW = Math.max(1, Math.floor(cellWidth * 0.35));
-                    sampleH = Math.max(1, Math.floor(cellHeight * 0.35));
-                } else {
-                    sampleX = Math.floor(x * cellWidth);
-                    sampleY = Math.floor(y * cellHeight);
-                    sampleW = Math.max(1, Math.floor(cellWidth));
-                    sampleH = Math.max(1, Math.floor(cellHeight));
-                }
+                // 调用核心抗网格干扰采样
+                const sampledRGB = sampleCellColorDeGrid(
+                    ctx, sampleX, sampleY, sampleW, sampleH, 
+                    mode === 'has_grid', darkCutoffPercent
+                );
 
-                const imgData = ctx.getImageData(sampleX, sampleY, sampleW, sampleH).data;
-                let totalR = 0, totalG = 0, totalB = 0, count = 0;
+                const isInsideFace = faceBoxes.some(box => 
+                    sampleX >= box.x && sampleX <= (box.x + box.width) &&
+                    sampleY >= box.y && sampleY <= (box.y + box.height)
+                );
 
-                for (let i = 0; i < imgData.length; i += 4) {
-                    if (imgData[i + 3] > 128) {
-                        totalR += imgData[i];
-                        totalG += imgData[i + 1];
-                        totalB += imgData[i + 2];
-                        count++;
-                    }
-                }
-
-                let avgR = 255, avgG = 255, avgB = 255;
-                if (count > 0) {
-                    avgR = Math.round(totalR / count);
-                    avgG = Math.round(totalG / count);
-                    avgB = Math.round(totalB / count);
-                }
-
-                const initialMatched = getNearestMardColor(avgR, avgG, avgB, algo, selectedSkinCode);
-                rawPixels.push({ x, y, r: avgR, g: avgG, b: avgB, matched: initialMatched });
+                const initialMatched = getNearestMardColor(sampledRGB.r, sampledRGB.g, sampledRGB.b, algo, selectedSkinCode);
+                rawPixels.push({ x, y, r: sampledRGB.r, g: sampledRGB.g, b: sampledRGB.b, matched: initialMatched, isInsideFace });
             }
         }
 
-        // 2. 判断是否开启色号限制聚类算法
-        let activePalette = MARD_PALETTE;
+        let bgActivePalette = MARD_PALETTE;
         if (enableLimit) {
-            activePalette = reduceColorsToK(rawPixels, maxColorNum, algo);
+            const bgPixels = rawPixels.filter(p => !p.isInsideFace);
+            bgActivePalette = reduceColorsToK(bgPixels.length > 0 ? bgPixels : rawPixels, maxColorNum, algo);
         }
 
-        // 3. 渲染生成的网格
         const gridContainer = document.getElementById('beadGrid');
         gridContainer.innerHTML = '';
         gridContainer.style.gridTemplateColumns = `repeat(${gridW}, 20px)`;
@@ -1125,10 +1221,14 @@ document.getElementById('processBtn').addEventListener('click', () => {
             const x = pixel.x;
             const y = pixel.y;
 
-            // 如果启用了限制算法，重新在精简后的调色板中寻找最近色彩
-            const matchedColor = enableLimit ? 
-                getNearestMardColor(pixel.r, pixel.g, pixel.b, algo, selectedSkinCode, activePalette) : 
-                pixel.matched;
+            let matchedColor;
+            if (pixel.isInsideFace) {
+                matchedColor = getNearestMardColor(pixel.r, pixel.g, pixel.b, 'ciede2000', selectedSkinCode, MARD_PALETTE);
+            } else {
+                matchedColor = enableLimit ? 
+                    getNearestMardColor(pixel.r, pixel.g, pixel.b, algo, selectedSkinCode, bgActivePalette) : 
+                    pixel.matched;
+            }
 
             const cell = document.createElement('div');
             cell.className = 'cell';
@@ -1145,7 +1245,7 @@ document.getElementById('processBtn').addEventListener('click', () => {
             cell.style.color = brightness > 128 ? '#000000' : '#ffffff';
 
             if (showText) cell.innerText = matchedColor.code;
-            cell.title = `坐标: (${x + 1}, ${y + 1})\n色号: ${matchedColor.code}`;
+            cell.title = `坐标: (${x + 1}, ${y + 1})\n色号: ${matchedColor.code}${pixel.isInsideFace ? ' (👤人脸保护区域)' : ''}`;
 
             cell.addEventListener('click', () => {
                 if (isMultiSelectMode) {
@@ -1155,7 +1255,6 @@ document.getElementById('processBtn').addEventListener('click', () => {
                 }
             });
 
-            // 按住 A 键滑动选择
             cell.addEventListener('mouseenter', () => {
                 if (isAPressed && isMouseDown) {
                     if (!isMultiSelectMode) enterMultiSelectMode();
@@ -1264,7 +1363,6 @@ document.getElementById('toggleText').addEventListener('change', (e) => {
     });
 });
 
-// 高清图片导出
 document.getElementById('downloadBtn').addEventListener('click', () => {
     const grid = document.getElementById('beadGrid');
     if (!grid.children.length) {
@@ -1279,7 +1377,6 @@ document.getElementById('downloadBtn').addEventListener('click', () => {
 
     const cellSize = 36;
     const axisSize = 30;
-
     const margin3cm = 118;
 
     const colorCounts = {};
