@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mard 221 高精拼豆图纸生成器 (抗网格滤波精细版)</title>
+    <title>Mard 221 高精拼豆图纸生成器 (高亮框选改色版)</title>
     <!-- 引入前端 AI 人脸检测库 -->
     <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
     <style>
@@ -377,7 +377,6 @@
             </select>
         </div>
 
-        <!-- 智能抗网格污染采样框 -->
         <div class="degrid-box">
             <div class="form-group" style="margin-bottom: 4px;">
                 <label style="color: #117a65;">🛡️ 抗网格线干扰过滤</label>
@@ -471,9 +470,9 @@
         </div>
 
         <div class="multi-select-bar" id="multiSelectBar">
-            <div class="multi-info" id="multiSelectInfo">🎨 多选模式：按住 [A 键] + 鼠标滑动可快速框选格子</div>
+            <div class="multi-info" id="multiSelectInfo">🎨 高亮多选模式：点击或按住鼠标拖拽框选【高亮格子】</div>
             <div class="multi-controls">
-                <button id="selectAllSameBtn" style="background:#f39c12; color:white; padding:6px 10px; margin-top:0; width:auto;">全选当前同色</button>
+                <button id="selectAllSameBtn" style="background:#f39c12; color:white; padding:6px 10px; margin-top:0; width:auto;">全选当前高亮</button>
                 <select id="multiTargetColorSelect"></select>
                 <button class="btn-multi-apply" id="applyMultiChangeBtn">确定修改选中项</button>
                 <button class="btn-multi-cancel" id="cancelMultiBtn">退出多选</button>
@@ -491,12 +490,11 @@
             </div>
         </div>
 
-        <h2>📊 拼豆用量统计 (点击高亮 | 点击“替换”按钮全图统一替换)</h2>
+        <h2>📊 拼豆用量统计 (点击高亮某种颜色，可进行高亮框选/替换)</h2>
         <div class="palette-stats" id="paletteStats"></div>
     </div>
 </div>
 
-<!-- 单格修改色号弹窗 -->
 <div class="modal-overlay" id="colorModal">
     <div class="modal-card">
         <h3>🎨 单格手动修改色号</h3>
@@ -511,7 +509,6 @@
     </div>
 </div>
 
-<!-- 全图批量修改色号弹窗 -->
 <div class="modal-overlay" id="batchModal">
     <div class="modal-card">
         <h3>🔄 全图统一替换色号</h3>
@@ -705,7 +702,6 @@ function ciede2000(lab1, lab2) {
     );
 }
 
-// 核心功能点：抗网格污染的高精像素采样函数
 function sampleCellColorDeGrid(ctx, sampleX, sampleY, sampleW, sampleH, isGridMode, cutoffPercent = 35) {
     const imgData = ctx.getImageData(sampleX, sampleY, sampleW, sampleH).data;
     const pixelList = [];
@@ -721,10 +717,8 @@ function sampleCellColorDeGrid(ctx, sampleX, sampleY, sampleW, sampleH, isGridMo
             const g = imgData[i + 1];
             const b = imgData[i + 2];
 
-            // 计算相对灰度/亮度
             const brightness = 0.299 * r + 0.587 * g + 0.114 * b;
 
-            // 计算中心高斯权重（越靠近格子中心，权重越高，避开网格边缘）
             const pixelIdx = i / 4;
             const px = pixelIdx % sampleW;
             const py = Math.floor(pixelIdx / sampleW);
@@ -738,14 +732,12 @@ function sampleCellColorDeGrid(ctx, sampleX, sampleY, sampleW, sampleH, isGridMo
     if (pixelList.length === 0) return { r: 255, g: 255, b: 255 };
 
     if (isGridMode) {
-        // 抗网格核心逻辑：按亮度排序，过滤掉最暗的前 X% (网格线条)
         pixelList.sort((a, b) => a.brightness - b.brightness);
         const cutIndex = Math.floor(pixelList.length * (cutoffPercent / 100));
         const filteredList = pixelList.slice(cutIndex);
 
         if (filteredList.length === 0) return { r: pixelList[pixelList.length - 1].r, g: pixelList[pixelList.length - 1].g, b: pixelList[pixelList.length - 1].b };
 
-        // 加权求和求真实颜色
         let totalR = 0, totalG = 0, totalB = 0, totalWeight = 0;
         filteredList.forEach(p => {
             totalR += p.r * p.weight;
@@ -760,7 +752,6 @@ function sampleCellColorDeGrid(ctx, sampleX, sampleY, sampleW, sampleH, isGridMo
             b: Math.round(totalB / totalWeight)
         };
     } else {
-        // 普通平滑模式：全局加权
         let totalR = 0, totalG = 0, totalB = 0, totalWeight = 0;
         pixelList.forEach(p => {
             totalR += p.r * p.weight;
@@ -918,7 +909,17 @@ function exitMultiSelectMode() {
     document.getElementById('multiSelectBar').classList.remove('active');
 }
 
+// 判断格子是否可以被选中：只有非 dimmed 且在 activeHighlightCode 匹配状态下才允许选中
+function isCellSelectable(cell) {
+    if (activeHighlightCode !== null) {
+        return cell.dataset.code === activeHighlightCode;
+    }
+    return !cell.classList.contains('dimmed');
+}
+
 function toggleSelectCell(cell) {
+    if (!isCellSelectable(cell)) return; // 拦截未高亮的格子
+
     if (selectedCells.has(cell)) {
         selectedCells.delete(cell);
         cell.classList.remove('selected-multi');
@@ -930,6 +931,8 @@ function toggleSelectCell(cell) {
 }
 
 function addSelectCell(cell) {
+    if (!isCellSelectable(cell)) return; // 拦截未高亮的格子
+
     if (!selectedCells.has(cell)) {
         selectedCells.add(cell);
         cell.classList.add('selected-multi');
@@ -938,7 +941,7 @@ function addSelectCell(cell) {
 }
 
 function updateMultiSelectUI() {
-    document.getElementById('multiSelectInfo').innerText = `🎨 多选改色模式：已选中 ${selectedCells.size} 个格子 (按住 A 键+鼠标滑动框选)`;
+    document.getElementById('multiSelectInfo').innerText = `🎨 高亮多选模式：已选中 ${selectedCells.size} 个高亮格子 (拖拽鼠标快速框选)`;
 }
 
 window.addEventListener('keydown', (e) => {
@@ -964,9 +967,10 @@ window.addEventListener('keyup', (e) => {
 window.addEventListener('mousedown', () => { isMouseDown = true; });
 window.addEventListener('mouseup', () => { isMouseDown = false; });
 
+// 全选当前高亮格子
 document.getElementById('selectAllSameBtn').addEventListener('click', () => {
     if (!activeHighlightCode) {
-        alert("提示：请先在下方【拼豆用量统计】中点击某种颜色高亮它，然后再点击此按钮！");
+        alert("提示：请先在下方【拼豆用量统计】中点击某种颜色高亮它，然后再批量框选改色！");
         return;
     }
     const cells = document.querySelectorAll('.cell');
@@ -981,7 +985,7 @@ document.getElementById('selectAllSameBtn').addEventListener('click', () => {
 
 document.getElementById('applyMultiChangeBtn').addEventListener('click', () => {
     if (selectedCells.size === 0) {
-        alert("请先点击或按住 A 键滑动选择至少一个格子！");
+        alert("请先点击或按住鼠标拖拽框选至少一个高亮格子！");
         return;
     }
 
@@ -1188,7 +1192,6 @@ document.getElementById('processBtn').addEventListener('click', async () => {
                 const sampleW = Math.max(1, Math.floor(cellWidth));
                 const sampleH = Math.max(1, Math.floor(cellHeight));
 
-                // 调用核心抗网格干扰采样
                 const sampledRGB = sampleCellColorDeGrid(
                     ctx, sampleX, sampleY, sampleW, sampleH, 
                     mode === 'has_grid', darkCutoffPercent
@@ -1247,6 +1250,7 @@ document.getElementById('processBtn').addEventListener('click', async () => {
             if (showText) cell.innerText = matchedColor.code;
             cell.title = `坐标: (${x + 1}, ${y + 1})\n色号: ${matchedColor.code}${pixel.isInsideFace ? ' (👤人脸保护区域)' : ''}`;
 
+            // 点击与拖拽框选逻辑
             cell.addEventListener('click', () => {
                 if (isMultiSelectMode) {
                     toggleSelectCell(cell);
@@ -1255,15 +1259,18 @@ document.getElementById('processBtn').addEventListener('click', async () => {
                 }
             });
 
+            // 鼠标按住滑过（拉动框选）
             cell.addEventListener('mouseenter', () => {
-                if (isAPressed && isMouseDown) {
-                    if (!isMultiSelectMode) enterMultiSelectMode();
-                    addSelectCell(cell);
+                if (isMouseDown) {
+                    if (isMultiSelectMode || isAPressed) {
+                        if (!isMultiSelectMode) enterMultiSelectMode();
+                        addSelectCell(cell);
+                    }
                 }
             });
 
             cell.addEventListener('mousedown', () => {
-                if (isAPressed) {
+                if (isMultiSelectMode || isAPressed) {
                     if (!isMultiSelectMode) enterMultiSelectMode();
                     addSelectCell(cell);
                 }
