@@ -1,0 +1,1301 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mard 221 高精拼豆图纸生成器 (A键滑动多选版)</title>
+    <style>
+        :root {
+            --bg-color: #f4f6f9;
+            --panel-bg: #ffffff;
+            --primary: #4a90e2;
+            --accent: #ff4757;
+            --select-color: #ff9f1a;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-color);
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+        .container {
+            max-width: 1450px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            gap: 20px;
+        }
+        .sidebar {
+            background: var(--panel-bg);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+            height: fit-content;
+        }
+        .main-content {
+            background: var(--panel-bg);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1, h2 {
+            margin-top: 0;
+            font-size: 1.1rem;
+            color: #1a1a1a;
+        }
+        .form-group { margin-bottom: 12px; }
+        label {
+            display: block;
+            margin-bottom: 4px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        input[type="file"], input[type="number"], select, input[type="range"], button {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            box-sizing: border-box;
+            font-size: 0.9rem;
+        }
+        button {
+            background: var(--primary);
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            margin-top: 8px;
+            transition: background 0.2s;
+        }
+        button:hover { background: #357abd; }
+        .btn-download { background: #2ed573; }
+        .btn-download:hover { background: #26af5f; }
+
+        .controls-bar {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            background: #f1f2f6;
+            padding: 10px 15px;
+            border-radius: 8px;
+            box-sizing: border-box;
+        }
+        
+        .multi-select-bar {
+            display: none;
+            width: 100%;
+            background: #fff8e7;
+            border: 2px solid var(--select-color);
+            padding: 10px 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            align-items: center;
+            justify-content: space-between;
+            box-sizing: border-box;
+            gap: 12px;
+        }
+        .multi-select-bar.active {
+            display: flex;
+            animation: fadeIn 0.2s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .multi-info {
+            font-size: 0.85rem;
+            font-weight: bold;
+            color: #d35400;
+            white-space: nowrap;
+        }
+        .multi-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-grow: 1;
+            justify-content: flex-end;
+        }
+        .multi-controls select {
+            width: auto;
+            min-width: 180px;
+        }
+        .btn-multi-apply {
+            background: var(--select-color) !important;
+            color: white;
+            padding: 6px 14px !important;
+            margin-top: 0 !important;
+            width: auto !important;
+        }
+        .btn-multi-apply:hover { background: #e67e22 !important; }
+        .btn-multi-cancel {
+            background: #95a5a6 !important;
+            color: white;
+            padding: 6px 12px !important;
+            margin-top: 0 !important;
+            width: auto !important;
+        }
+
+        .zoom-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.85rem;
+        }
+        .grid-container-wrapper {
+            overflow: auto;
+            max-width: 100%;
+            max-height: 65vh;
+            border: 2px solid #333;
+            background: #eef1f5;
+            padding: 20px;
+            border-radius: 8px;
+            box-sizing: border-box;
+        }
+        #beadGridTransform {
+            transform-origin: top left;
+            transition: transform 0.1s ease-out;
+            display: inline-block;
+        }
+
+        .grid-with-axis {
+            display: grid;
+            gap: 0px;
+            user-select: none;
+        }
+        
+        .axis-corner {
+            background: #2c3e50;
+            border-radius: 4px 0 0 0;
+        }
+        
+        .axis-x {
+            display: grid;
+            gap: 0px;
+            background: #34495e;
+            color: #ecf0f1;
+            font-size: 9px;
+            font-weight: bold;
+        }
+        .axis-x-cell {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 20px;
+            border-right: 1px solid rgba(255,255,255,0.15);
+            box-sizing: border-box;
+        }
+        .axis-x-cell.thick-border {
+            border-right: 2.5px solid var(--accent) !important;
+            color: #fffa65;
+            font-weight: 900;
+        }
+
+        .axis-y {
+            display: grid;
+            gap: 0px;
+            background: #34495e;
+            color: #ecf0f1;
+            font-size: 9px;
+            font-weight: bold;
+        }
+        .axis-y-cell {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            border-bottom: 1px solid rgba(255,255,255,0.15);
+            box-sizing: border-box;
+        }
+        .axis-y-cell.thick-border {
+            border-bottom: 2.5px solid var(--accent) !important;
+            color: #fffa65;
+            font-weight: 900;
+        }
+
+        #beadGrid {
+            display: grid;
+            gap: 0px;
+            background-color: transparent;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+        }
+        .cell {
+            background-color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            position: relative;
+            transition: opacity 0.2s, transform 0.1s;
+            box-sizing: border-box;
+            border: 1px solid rgba(0,0,0,0.08);
+        }
+        .cell:hover {
+            outline: 2px solid var(--accent);
+            z-index: 10;
+        }
+
+        /* 按住 A 键时的准星提示 */
+        body.is-a-pressed .cell {
+            cursor: crosshair !important;
+        }
+
+        .cell.thick-right {
+            border-right: 2px solid #000000 !important;
+        }
+        .cell.thick-bottom {
+            border-bottom: 2px solid #000000 !important;
+        }
+        
+        .cell.dimmed { opacity: 0.15; }
+        .cell.highlighted {
+            opacity: 1 !important;
+            outline: 2px solid #ff4757;
+            z-index: 5;
+            transform: scale(1.05);
+        }
+        .cell.selected-multi {
+            outline: 3px solid var(--select-color) !important;
+            z-index: 20 !important;
+            transform: scale(1.12);
+            box-shadow: 0 0 8px rgba(255, 159, 26, 0.8);
+        }
+
+        .palette-stats {
+            margin-top: 15px;
+            width: 100%;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+            gap: 10px;
+        }
+        .stat-card {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 6px 10px;
+            background: #f9f9f9;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            border: 1px solid #eee;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .stat-card:hover {
+            border-color: var(--primary);
+            background: #f0f7ff;
+        }
+        .stat-info {
+            display: flex;
+            align-items: center;
+        }
+        .color-box {
+            width: 18px;
+            height: 18px;
+            border-radius: 4px;
+            margin-right: 8px;
+            border: 1px solid rgba(0,0,0,0.2);
+        }
+        .btn-batch-change {
+            font-size: 0.7rem;
+            padding: 2px 6px;
+            background: #eccc68;
+            color: #333;
+            border-radius: 4px;
+            border: none;
+            margin-top: 0;
+            width: auto;
+        }
+        .btn-batch-change:hover { background: #ffa502; color: #fff; }
+
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 100;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-card {
+            background: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            width: 320px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+        }
+        .modal-card h3 { margin-top: 0; font-size: 1rem; }
+        .modal-card select { margin-bottom: 15px; }
+        .modal-btns { display: flex; gap: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="sidebar">
+        <h1>⚙️ 高精拼豆图纸设置</h1>
+        
+        <div class="form-group">
+            <label>1. 上传参考图片</label>
+            <input type="file" id="imageInput" accept="image/*">
+        </div>
+
+        <div class="form-group">
+            <label>2. 原图模式</label>
+            <select id="sampleMode">
+                <option value="has_grid">图片自带黑框网格（过滤边框）</option>
+                <option value="smooth">普通无网格图片（全域平滑）</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>3. 色彩感知精度引擎</label>
+            <select id="algorithmSelect">
+                <option value="ciede2000">💎 CIEDE2000 超精细人眼感知算法</option>
+                <option value="cielab">⚡ CIELAB 标准算法</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>4. 肤色偏置修正</label>
+            <select id="skinColorSelect">
+                <option value="AUTO">✨ 算法精准实采匹配</option>
+                <option value="E14">E14 (暖粉白/白皙)</option>
+                <option value="E16">E16 (冷白肉粉)</option>
+                <option value="E11">E11 (暖粉肤色)</option>
+                <option value="F14">F14 (嫩嫩肉粉)</option>
+                <option value="F16">F16 (自然浅肤)</option>
+                <option value="F17">F17 (暖小麦肤)</option>
+                <option value="F20">F20 (灰调阴影肤)</option>
+                <option value="M14">M14 (深暗调肤色)</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>5. 列数 (Width) / 行数 (Height)</label>
+            <div style="display: flex; gap: 8px;">
+                <input type="number" id="gridWidth" value="24" min="5" max="100">
+                <input type="number" id="gridHeight" value="24" min="5" max="100">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>
+                <input type="checkbox" id="toggleThickGrid" checked> 逢 5 加粗网格 (每 5 行列加粗)
+            </label>
+        </div>
+
+        <div class="form-group">
+            <label>
+                <input type="checkbox" id="toggleText" checked> 显示色号文字
+            </label>
+        </div>
+
+        <button id="processBtn">🚀 识别生成 Mard 图纸</button>
+        <button id="downloadBtn" class="btn-download">📥 下载打印级图纸 (含3cm白边+用量表)</button>
+    </div>
+
+    <div class="main-content">
+        <div class="controls-bar">
+            <h2>📌 交互图纸 (顶部左侧坐标轴)</h2>
+            <div class="zoom-control">
+                <span>🔍 缩放:</span>
+                <input type="range" id="zoomRange" min="50" max="300" value="100">
+                <span id="zoomVal">100%</span>
+            </div>
+        </div>
+
+        <!-- 多选修改工具浮条 -->
+        <div class="multi-select-bar" id="multiSelectBar">
+            <div class="multi-info" id="multiSelectInfo">🎨 多选模式：按住 [A 键] + 鼠标滑动可快速框选格子</div>
+            <div class="multi-controls">
+                <button id="selectAllSameBtn" style="background:#f39c12; color:white; padding:6px 10px; margin-top:0; width:auto;">全选当前同色</button>
+                <select id="multiTargetColorSelect"></select>
+                <button class="btn-multi-apply" id="applyMultiChangeBtn">确定修改选中项</button>
+                <button class="btn-multi-cancel" id="cancelMultiBtn">退出多选</button>
+            </div>
+        </div>
+
+        <div class="grid-container-wrapper" id="gridWrapper">
+            <div id="beadGridTransform">
+                <div class="grid-with-axis" id="gridWithAxis">
+                    <div class="axis-corner"></div>
+                    <div class="axis-x" id="axisX"></div>
+                    <div class="axis-y" id="axisY"></div>
+                    <div id="beadGrid"></div>
+                </div>
+            </div>
+        </div>
+
+        <h2>📊 拼豆用量统计 (点击高亮 | 点击“替换”按钮全图统一替换)</h2>
+        <div class="palette-stats" id="paletteStats"></div>
+    </div>
+</div>
+
+<!-- 1. 单格修改色号弹窗 -->
+<div class="modal-overlay" id="colorModal">
+    <div class="modal-card">
+        <h3>🎨 单格手动修改色号</h3>
+        <div class="form-group">
+            <label>选择 Mard 色号：</label>
+            <select id="modalColorSelect"></select>
+        </div>
+        <div class="modal-btns">
+            <button id="confirmChangeBtn">确定修改</button>
+            <button id="cancelChangeBtn" style="background: #999;">取消</button>
+        </div>
+    </div>
+</div>
+
+<!-- 2. 全图批量修改色号弹窗 -->
+<div class="modal-overlay" id="batchModal">
+    <div class="modal-card">
+        <h3>🔄 全图统一替换色号</h3>
+        <div style="margin-bottom: 10px; font-size: 0.85rem; color: #666;">
+            将全图中所有 <strong id="batchSourceCode" style="color:var(--accent);">--</strong> 批量替换为：
+        </div>
+        <div class="form-group">
+            <label>目标 Mard 色号：</label>
+            <select id="batchColorSelect"></select>
+        </div>
+        <div class="modal-btns">
+            <button id="confirmBatchBtn" style="background: var(--accent);">确定全图替换</button>
+            <button id="cancelBatchBtn" style="background: #999;">取消</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// Mard 221 全套核心色号库
+const MARD_PALETTE = [
+    { code: "A1", r: 250, g: 244, b: 200 }, { code: "A4", r: 251, g: 237, b: 86 },
+    { code: "A11", r: 255, g: 221, b: 153 },
+    { code: "C12", r: 28, g: 51, b: 77 }, { code: "C15", r: 34, g: 196, b: 198 },
+    { code: "C16", r: 21, g: 87, b: 168 }, { code: "C18", r: 29, g: 51, b: 68 },
+    { code: "D1", r: 174, g: 180, b: 242 }, { code: "D2", r: 133, g: 142, b: 221 },
+    { code: "D3", r: 47, g: 84, b: 175 }, { code: "D4", r: 24, g: 42, b: 132 },
+    { code: "D5", r: 184, g: 67, b: 197 }, { code: "D6", r: 172, g: 123, b: 222 },
+    { code: "D7", r: 136, g: 84, b: 179 }, { code: "D8", r: 226, g: 211, b: 255 },
+    { code: "D9", r: 213, g: 185, b: 248 }, { code: "D10", r: 54, g: 24, b: 81 },
+    { code: "D11", r: 185, g: 186, b: 225 }, { code: "D12", r: 222, g: 154, b: 212 },
+    { code: "D13", r: 185, g: 0, b: 149 }, { code: "D14", r: 139, g: 39, b: 155 },
+    { code: "D15", r: 47, g: 31, b: 144 }, { code: "D16", r: 227, g: 225, b: 238 },
+    { code: "D17", r: 196, g: 212, b: 246 }, { code: "D18", r: 164, g: 94, b: 199 },
+    { code: "D19", r: 216, g: 195, b: 215 }, { code: "D20", r: 156, g: 50, b: 178 },
+    { code: "E1", r: 253, g: 211, b: 204 }, { code: "E2", r: 254, g: 192, b: 223 },
+    { code: "E3", r: 255, g: 183, b: 231 }, { code: "E4", r: 232, g: 100, b: 158 },
+    { code: "E5", r: 245, g: 81, b: 162 }, { code: "E6", r: 241, g: 61, b: 116 },
+    { code: "E7", r: 198, g: 52, b: 120 }, { code: "E8", r: 255, g: 219, b: 233 },
+    { code: "E9", r: 233, g: 112, b: 204 }, { code: "E10", r: 211, g: 55, b: 147 },
+    { code: "E11", r: 252, g: 221, b: 210 }, { code: "E12", r: 247, g: 143, b: 195 },
+    { code: "E13", r: 181, g: 0, b: 109 }, { code: "E14", r: 255, g: 209, b: 186 },
+    { code: "E15", r: 248, g: 199, b: 201 }, { code: "E16", r: 255, g: 243, b: 235 },
+    { code: "E17", r: 255, g: 226, b: 234 }, { code: "E18", r: 255, g: 199, b: 219 },
+    { code: "E19", r: 254, g: 186, b: 213 }, { code: "E20", r: 216, g: 199, b: 209 },
+    { code: "E21", r: 189, g: 157, b: 161 }, { code: "E22", r: 183, g: 133, b: 161 },
+    { code: "E23", r: 147, g: 122, b: 141 }, { code: "E24", r: 225, g: 188, b: 232 },
+    { code: "F1", r: 253, g: 149, b: 123 }, { code: "F2", r: 252, g: 61, b: 70 },
+    { code: "F3", r: 247, g: 73, b: 65 }, { code: "F4", r: 252, g: 40, b: 60 },
+    { code: "F5", r: 231, g: 0, b: 47 }, { code: "F6", r: 148, g: 54, b: 48 },
+    { code: "F7", r: 151, g: 25, b: 55 }, { code: "F8", r: 188, g: 0, b: 40 },
+    { code: "F9", r: 226, g: 103, b: 122 }, { code: "F10", r: 138, g: 69, b: 38 },
+    { code: "F11", r: 90, g: 33, b: 33 }, { code: "F12", r: 253, g: 78, b: 106 },
+    { code: "F13", r: 243, g: 87, b: 68 }, { code: "F14", r: 255, g: 169, b: 173 },
+    { code: "F15", r: 211, g: 0, b: 34 }, { code: "F16", r: 254, g: 194, b: 166 },
+    { code: "F17", r: 230, g: 156, b: 121 }, { code: "F18", r: 211, g: 124, b: 70 },
+    { code: "F19", r: 193, g: 68, b: 74 }, { code: "F20", r: 205, g: 147, b: 145 },
+    { code: "F21", r: 247, g: 180, b: 198 }, { code: "F22", r: 253, g: 192, b: 208 },
+    { code: "F23", r: 246, g: 126, b: 102 }, { code: "F24", r: 230, g: 152, b: 170 },
+    { code: "F25", r: 229, g: 75, b: 79 },
+    { code: "G1", r: 255, g: 226, b: 206 }, { code: "G2", r: 255, g: 196, b: 170 },
+    { code: "G3", r: 244, g: 195, b: 165 }, { code: "G4", r: 225, g: 179, b: 131 },
+    { code: "G15", r: 252, g: 249, b: 224 }, { code: "G16", r: 242, g: 217, b: 186 },
+    { code: "G18", r: 255, g: 228, b: 204 },
+    { code: "H1", r: 253, g: 251, b: 255 }, { code: "H2", r: 254, g: 255, b: 255 },
+    { code: "H3", r: 182, g: 177, b: 186 }, { code: "H4", r: 137, g: 133, b: 140 },
+    { code: "H5", r: 72, g: 70, b: 78 }, { code: "H6", r: 47, g: 43, b: 47 },
+    { code: "H7", r: 0, g: 0, b: 0 }, { code: "H12", r: 255, g: 245, b: 237 },
+    { code: "M1", r: 188, g: 198, b: 184 }, { code: "M8", r: 179, g: 130, b: 129 },
+    { code: "M10", r: 197, g: 178, b: 188 }, { code: "M11", r: 159, g: 117, b: 148 },
+    { code: "M12", r: 100, g: 71, b: 73 }, { code: "M14", r: 199, g: 115, b: 98 }
+];
+
+const SORTED_PALETTE = MARD_PALETTE.slice().sort((a, b) => 
+    a.code.localeCompare(b.code, undefined, { numeric: true, sensitivity: 'base' })
+);
+
+let activeHighlightCode = null;
+let currentEditingCell = null;
+let batchSourceCode = null;
+
+let isMultiSelectMode = false;
+let selectedCells = new Set();
+
+let isAPressed = false;
+let isMouseDown = false;
+
+function populateDropdown(selectElement) {
+    selectElement.innerHTML = '';
+    SORTED_PALETTE.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.code;
+        opt.innerText = `${c.code} (RGB: ${c.r},${c.g},${c.b})`;
+        selectElement.appendChild(opt);
+    });
+}
+populateDropdown(document.getElementById('modalColorSelect'));
+populateDropdown(document.getElementById('batchColorSelect'));
+populateDropdown(document.getElementById('multiTargetColorSelect'));
+
+function rgbToLab(r, g, b) {
+    let r1 = r / 255, g1 = g / 255, b1 = b / 255;
+    r1 = r1 > 0.04045 ? Math.pow((r1 + 0.055) / 1.055, 2.4) : r1 / 12.92;
+    g1 = g1 > 0.04045 ? Math.pow((g1 + 0.055) / 1.055, 2.4) : g1 / 12.92;
+    b1 = b1 > 0.04045 ? Math.pow((b1 + 0.055) / 1.055, 2.4) : b1 / 12.92;
+
+    let x = (r1 * 0.4124 + g1 * 0.3576 + b1 * 0.1805) / 0.95047;
+    let y = (r1 * 0.2126 + g1 * 0.7152 + b1 * 0.0722) / 1.00000;
+    let z = (r1 * 0.0193 + g1 * 0.1192 + b1 * 0.9505) / 1.08883;
+
+    x = x > 0.008856 ? Math.pow(x, 1/3) : (7.787 * x) + 16/116;
+    y = y > 0.008856 ? Math.pow(y, 1/3) : (7.787 * y) + 16/116;
+    z = z > 0.008856 ? Math.pow(z, 1/3) : (7.787 * z) + 16/116;
+
+    return [(116 * y) - 16, 500 * (x - y), 200 * (y - z)];
+}
+
+function ciede2000(lab1, lab2) {
+    const L1 = lab1[0], a1 = lab1[1], b1 = lab1[2];
+    const L2 = lab2[0], a2 = lab2[1], b2 = lab2[2];
+
+    const C1 = Math.sqrt(a1 * a1 + b1 * b1);
+    const C2 = Math.sqrt(a2 * a2 + b2 * b2);
+    const C_bar = (C1 + C2) / 2;
+
+    const G = 0.5 * (1 - Math.sqrt(Math.pow(C_bar, 7) / (Math.pow(C_bar, 7) + Math.pow(25, 7))));
+    const a1_prime = (1 + G) * a1;
+    const a2_prime = (1 + G) * a2;
+
+    const C1_prime = Math.sqrt(a1_prime * a1_prime + b1 * b1);
+    const C2_prime = Math.sqrt(a2_prime * a2_prime + b2 * b2);
+
+    const h1_prime = (Math.atan2(b1, a1_prime) * 180 / Math.PI + 360) % 360;
+    const h2_prime = (Math.atan2(b2, a2_prime) * 180 / Math.PI + 360) % 360;
+
+    const delta_L_prime = L2 - L1;
+    const delta_C_prime = C2_prime - C1_prime;
+
+    let deltah_prime = 0;
+    if (C1_prime * C2_prime !== 0) {
+        if (Math.abs(h1_prime - h2_prime) <= 180) {
+            deltah_prime = h2_prime - h1_prime;
+        } else if (h2_prime <= h1_prime) {
+            deltah_prime = h2_prime - h1_prime + 360;
+        } else {
+            deltah_prime = h2_prime - h1_prime - 360;
+        }
+    }
+    const delta_H_prime = 2 * Math.sqrt(C1_prime * C2_prime) * Math.sin((deltah_prime / 2) * Math.PI / 180);
+
+    const L_bar_prime = (L1 + L2) / 2;
+    const C_bar_prime = (C1_prime + C2_prime) / 2;
+
+    let h_bar_prime = 0;
+    if (C1_prime * C2_prime !== 0) {
+        if (Math.abs(h1_prime - h2_prime) <= 180) {
+            h_bar_prime = (h1_prime + h2_prime) / 2;
+        } else if (h1_prime + h2_prime < 360) {
+            h_bar_prime = (h1_prime + h2_prime + 360) / 2;
+        } else {
+            h_bar_prime = (h1_prime + h2_prime - 360) / 2;
+        }
+    }
+
+    const T = 1 - 0.17 * Math.cos((h_bar_prime - 30) * Math.PI / 180)
+                + 0.24 * Math.cos((2 * h_bar_prime) * Math.PI / 180)
+                + 0.32 * Math.cos((3 * h_bar_prime + 6) * Math.PI / 180)
+                - 0.20 * Math.cos((4 * h_bar_prime - 63) * Math.PI / 180);
+
+    const delta_theta = 30 * Math.exp(-Math.pow((h_bar_prime - 275) / 25, 2));
+    const R_C = 2 * Math.sqrt(Math.pow(C_bar_prime, 7) / (Math.pow(C_bar_prime, 7) + Math.pow(25, 7)));
+    const S_L = 1 + (0.015 * Math.pow(L_bar_prime - 50, 2)) / Math.sqrt(20 + Math.pow(L_bar_prime - 50, 2));
+    const S_C = 1 + 0.045 * C_bar_prime;
+    const S_H = 1 + 0.015 * C_bar_prime * T;
+    const R_T = -Math.sin(2 * delta_theta * Math.PI / 180) * R_C;
+
+    return Math.sqrt(
+        Math.pow(delta_L_prime / S_L, 2) +
+        Math.pow(delta_C_prime / S_C, 2) +
+        Math.pow(delta_H_prime / S_H, 2) +
+        R_T * (delta_C_prime / S_C) * (delta_H_prime / S_H)
+    );
+}
+
+function getNearestMardColor(r, g, b, algo, selectedSkinCode) {
+    const lab1 = rgbToLab(r, g, b);
+    let minDistance = Infinity;
+    let closestColor = MARD_PALETTE[0];
+
+    const isSkinZone = (r > 130 && g > 90 && b > 80 && (r >= g));
+
+    for (let color of MARD_PALETTE) {
+        const lab2 = rgbToLab(color.r, color.g, color.b);
+        let distance = 0;
+
+        if (algo === 'ciede2000') {
+            distance = ciede2000(lab1, lab2);
+        } else {
+            distance = Math.sqrt(
+                Math.pow(lab1[0] - lab2[0], 2) + 
+                Math.pow(lab1[1] - lab2[1], 2) + 
+                Math.pow(lab1[2] - lab2[2], 2)
+            );
+        }
+
+        if (isSkinZone && selectedSkinCode !== "AUTO") {
+            if (color.code === selectedSkinCode) {
+                distance *= 0.35;
+            }
+        }
+
+        if (distance < minDistance) {
+            minDistance = distance;
+            closestColor = color;
+        }
+    }
+    return closestColor;
+}
+
+function toggleHighlight(code) {
+    if (isMultiSelectMode) return;
+
+    const cells = document.querySelectorAll('.cell');
+    if (activeHighlightCode === code) {
+        activeHighlightCode = null;
+        cells.forEach(c => c.classList.remove('dimmed', 'highlighted'));
+    } else {
+        activeHighlightCode = code;
+        cells.forEach(c => {
+            if (c.dataset.code === code) {
+                c.classList.add('highlighted');
+                c.classList.remove('dimmed');
+            } else {
+                c.classList.add('dimmed');
+                c.classList.remove('highlighted');
+            }
+        });
+    }
+}
+
+function enterMultiSelectMode(initialCell = null) {
+    isMultiSelectMode = true;
+    selectedCells.clear();
+    document.getElementById('multiSelectBar').classList.add('active');
+
+    if (initialCell) {
+        toggleSelectCell(initialCell);
+    } else {
+        updateMultiSelectUI();
+    }
+}
+
+function exitMultiSelectMode() {
+    isMultiSelectMode = false;
+    selectedCells.forEach(cell => cell.classList.remove('selected-multi'));
+    selectedCells.clear();
+    document.getElementById('multiSelectBar').classList.remove('active');
+}
+
+function toggleSelectCell(cell) {
+    if (selectedCells.has(cell)) {
+        selectedCells.delete(cell);
+        cell.classList.remove('selected-multi');
+    } else {
+        selectedCells.add(cell);
+        cell.classList.add('selected-multi');
+    }
+    updateMultiSelectUI();
+}
+
+function addSelectCell(cell) {
+    if (!selectedCells.has(cell)) {
+        selectedCells.add(cell);
+        cell.classList.add('selected-multi');
+        updateMultiSelectUI();
+    }
+}
+
+function updateMultiSelectUI() {
+    document.getElementById('multiSelectInfo').innerText = `🎨 多选改色模式：已选中 ${selectedCells.size} 个格子 (按住 A 键+鼠标滑动框选)`;
+}
+
+// 修改为键盘按住 A 键
+window.addEventListener('keydown', (e) => {
+    if (e.key.toLowerCase() === 'a' && !isAPressed) {
+        if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+        
+        isAPressed = true;
+        document.body.classList.add('is-a-pressed');
+        
+        if (!isMultiSelectMode) {
+            enterMultiSelectMode();
+        }
+    }
+});
+
+window.addEventListener('keyup', (e) => {
+    if (e.key.toLowerCase() === 'a') {
+        isAPressed = false;
+        document.body.classList.remove('is-a-pressed');
+    }
+});
+
+window.addEventListener('mousedown', () => { isMouseDown = true; });
+window.addEventListener('mouseup', () => { isMouseDown = false; });
+
+document.getElementById('selectAllSameBtn').addEventListener('click', () => {
+    if (!activeHighlightCode) {
+        alert("提示：请先在下方【拼豆用量统计】中点击某种颜色高亮它，然后再点击此按钮！");
+        return;
+    }
+    const cells = document.querySelectorAll('.cell');
+    cells.forEach(cell => {
+        if (cell.dataset.code === activeHighlightCode) {
+            selectedCells.add(cell);
+            cell.classList.add('selected-multi');
+        }
+    });
+    updateMultiSelectUI();
+});
+
+document.getElementById('applyMultiChangeBtn').addEventListener('click', () => {
+    if (selectedCells.size === 0) {
+        alert("请先点击或按住 A 键滑动选择至少一个格子！");
+        return;
+    }
+
+    const targetCode = document.getElementById('multiTargetColorSelect').value;
+    const targetColorObj = MARD_PALETTE.find(c => c.code === targetCode);
+
+    if (targetColorObj) {
+        selectedCells.forEach(cell => {
+            cell.dataset.code = targetCode;
+            cell.style.backgroundColor = `rgb(${targetColorObj.r}, ${targetColorObj.g}, ${targetColorObj.b})`;
+
+            const brightness = (targetColorObj.r * 299 + targetColorObj.g * 587 + targetColorObj.b * 114) / 1000;
+            cell.style.color = brightness > 128 ? '#000000' : '#ffffff';
+
+            if (document.getElementById('toggleText').checked) {
+                cell.innerText = targetCode;
+            }
+        });
+
+        refreshStats();
+        exitMultiSelectMode();
+    }
+});
+
+document.getElementById('cancelMultiBtn').addEventListener('click', exitMultiSelectMode);
+
+function refreshStats() {
+    const cells = document.querySelectorAll('.cell');
+    const colorCounts = {};
+
+    cells.forEach(cell => {
+        const code = cell.dataset.code;
+        colorCounts[code] = (colorCounts[code] || 0) + 1;
+    });
+
+    const statsContainer = document.getElementById('paletteStats');
+    statsContainer.innerHTML = '';
+    
+    const sortedCodes = Object.keys(colorCounts).sort((a, b) => 
+        a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+    );
+
+    for (let code of sortedCodes) {
+        const count = colorCounts[code];
+        const colorObj = MARD_PALETTE.find(c => c.code === code);
+        if (!colorObj) continue;
+        
+        const card = document.createElement('div');
+        card.className = 'stat-card';
+        card.innerHTML = `
+            <div class="stat-info">
+                <div class="color-box" style="background-color: rgb(${colorObj.r},${colorObj.g},${colorObj.b});"></div>
+                <div><strong>${code}</strong>: ${count}颗</div>
+            </div>
+            <button class="btn-batch-change" title="将全图的 ${code} 批量替换为其他颜色">替换</button>
+        `;
+        
+        card.addEventListener('click', (e) => {
+            if(e.target.classList.contains('btn-batch-change')) return;
+            toggleHighlight(code);
+        });
+
+        card.querySelector('.btn-batch-change').addEventListener('click', (e) => {
+            e.stopPropagation();
+            batchSourceCode = code;
+            document.getElementById('batchSourceCode').innerText = code;
+            document.getElementById('batchColorSelect').value = code;
+            document.getElementById('batchModal').style.display = 'flex';
+        });
+
+        statsContainer.appendChild(card);
+    }
+}
+
+function buildAxesAndGrid(gridW, gridH) {
+    const gridWithAxis = document.getElementById('gridWithAxis');
+    gridWithAxis.style.gridTemplateColumns = `24px repeat(${gridW}, 20px)`;
+    gridWithAxis.style.gridTemplateRows = `20px repeat(${gridH}, 20px)`;
+
+    const axisX = document.getElementById('axisX');
+    const axisY = document.getElementById('axisY');
+    axisX.innerHTML = '';
+    axisY.innerHTML = '';
+    
+    axisX.style.gridTemplateColumns = `repeat(${gridW}, 20px)`;
+    axisY.style.gridTemplateRows = `repeat(${gridH}, 20px)`;
+
+    const isThick = document.getElementById('toggleThickGrid').checked;
+
+    for (let x = 1; x <= gridW; x++) {
+        const cell = document.createElement('div');
+        cell.className = 'axis-x-cell';
+        if (isThick && x % 5 === 0) cell.classList.add('thick-border');
+        cell.innerText = x;
+        axisX.appendChild(cell);
+    }
+
+    for (let y = 1; y <= gridH; y++) {
+        const cell = document.createElement('div');
+        cell.className = 'axis-y-cell';
+        if (isThick && y % 5 === 0) cell.classList.add('thick-border');
+        cell.innerText = y;
+        axisY.appendChild(cell);
+    }
+}
+
+function updateThickGridDisplay() {
+    const isThick = document.getElementById('toggleThickGrid').checked;
+    const gridW = parseInt(document.getElementById('gridWidth').value);
+    const gridH = parseInt(document.getElementById('gridHeight').value);
+
+    const xCells = document.querySelectorAll('.axis-x-cell');
+    xCells.forEach((cell, idx) => {
+        const x = idx + 1;
+        if (isThick && x % 5 === 0) {
+            cell.classList.add('thick-border');
+        } else {
+            cell.classList.remove('thick-border');
+        }
+    });
+
+    const yCells = document.querySelectorAll('.axis-y-cell');
+    yCells.forEach((cell, idx) => {
+        const y = idx + 1;
+        if (isThick && y % 5 === 0) {
+            cell.classList.add('thick-border');
+        } else {
+            cell.classList.remove('thick-border');
+        }
+    });
+
+    const cells = document.querySelectorAll('.cell');
+    cells.forEach((cell, idx) => {
+        const x = (idx % gridW) + 1;
+        const y = Math.floor(idx / gridW) + 1;
+
+        if (isThick && x % 5 === 0 && x !== gridW) {
+            cell.classList.add('thick-right');
+        } else {
+            cell.classList.remove('thick-right');
+        }
+
+        if (isThick && y % 5 === 0 && y !== gridH) {
+            cell.classList.add('thick-bottom');
+        } else {
+            cell.classList.remove('thick-bottom');
+        }
+    });
+}
+
+document.getElementById('toggleThickGrid').addEventListener('change', updateThickGridDisplay);
+
+document.getElementById('processBtn').addEventListener('click', () => {
+    const fileInput = document.getElementById('imageInput');
+    if (!fileInput.files[0]) {
+        alert("请先上传参考图片！");
+        return;
+    }
+
+    const gridW = parseInt(document.getElementById('gridWidth').value);
+    const gridH = parseInt(document.getElementById('gridHeight').value);
+    const mode = document.getElementById('sampleMode').value;
+    const algo = document.getElementById('algorithmSelect').value;
+    const selectedSkinCode = document.getElementById('skinColorSelect').value;
+    const showText = document.getElementById('toggleText').checked;
+    const isThick = document.getElementById('toggleThickGrid').checked;
+
+    const img = new Image();
+    img.src = URL.createObjectURL(fileInput.files[0]);
+
+    img.onload = () => {
+        exitMultiSelectMode();
+
+        buildAxesAndGrid(gridW, gridH);
+
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+
+        const cellWidth = img.width / gridW;
+        const cellHeight = img.height / gridH;
+
+        const gridContainer = document.getElementById('beadGrid');
+        gridContainer.innerHTML = '';
+        gridContainer.style.gridTemplateColumns = `repeat(${gridW}, 20px)`;
+        gridContainer.style.gridTemplateRows = `repeat(${gridH}, 20px)`;
+
+        activeHighlightCode = null;
+
+        for (let y = 0; y < gridH; y++) {
+            for (let x = 0; x < gridW; x++) {
+                let sampleX, sampleY, sampleW, sampleH;
+
+                if (mode === 'has_grid') {
+                    sampleX = Math.floor(x * cellWidth + cellWidth * 0.325);
+                    sampleY = Math.floor(y * cellHeight + cellHeight * 0.325);
+                    sampleW = Math.max(1, Math.floor(cellWidth * 0.35));
+                    sampleH = Math.max(1, Math.floor(cellHeight * 0.35));
+                } else {
+                    sampleX = Math.floor(x * cellWidth);
+                    sampleY = Math.floor(y * cellHeight);
+                    sampleW = Math.max(1, Math.floor(cellWidth));
+                    sampleH = Math.max(1, Math.floor(cellHeight));
+                }
+
+                const imgData = ctx.getImageData(sampleX, sampleY, sampleW, sampleH).data;
+                let totalR = 0, totalG = 0, totalB = 0, count = 0;
+
+                for (let i = 0; i < imgData.length; i += 4) {
+                    const alpha = imgData[i + 3];
+                    if (alpha > 128) {
+                        totalR += imgData[i];
+                        totalG += imgData[i + 1];
+                        totalB += imgData[i + 2];
+                        count++;
+                    }
+                }
+
+                let avgR = 255, avgG = 255, avgB = 255;
+                if (count > 0) {
+                    avgR = Math.round(totalR / count);
+                    avgG = Math.round(totalG / count);
+                    avgB = Math.round(totalB / count);
+                }
+
+                const matchedColor = getNearestMardColor(avgR, avgG, avgB, algo, selectedSkinCode);
+
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                
+                if (isThick) {
+                    if ((x + 1) % 5 === 0 && (x + 1) !== gridW) cell.classList.add('thick-right');
+                    if ((y + 1) % 5 === 0 && (y + 1) !== gridH) cell.classList.add('thick-bottom');
+                }
+
+                cell.dataset.code = matchedColor.code;
+                cell.style.backgroundColor = `rgb(${matchedColor.r}, ${matchedColor.g}, ${matchedColor.b})`;
+
+                const brightness = (matchedColor.r * 299 + matchedColor.g * 587 + matchedColor.b * 114) / 1000;
+                cell.style.color = brightness > 128 ? '#000000' : '#ffffff';
+
+                if (showText) cell.innerText = matchedColor.code;
+                cell.title = `坐标: (${x + 1}, ${y + 1})\n色号: ${matchedColor.code}`;
+
+                cell.addEventListener('click', () => {
+                    if (isMultiSelectMode) {
+                        toggleSelectCell(cell);
+                    } else {
+                        toggleHighlight(cell.dataset.code);
+                    }
+                });
+
+                // 按住 A 键并滑动/点击格子
+                cell.addEventListener('mouseenter', () => {
+                    if (isAPressed && isMouseDown) {
+                        if (!isMultiSelectMode) enterMultiSelectMode();
+                        addSelectCell(cell);
+                    }
+                });
+
+                cell.addEventListener('mousedown', () => {
+                    if (isAPressed) {
+                        if (!isMultiSelectMode) enterMultiSelectMode();
+                        addSelectCell(cell);
+                    }
+                });
+
+                cell.addEventListener('dblclick', (e) => {
+                    e.stopPropagation();
+                    if (activeHighlightCode !== null) {
+                        enterMultiSelectMode(cell);
+                    } else {
+                        currentEditingCell = cell;
+                        document.getElementById('modalColorSelect').value = cell.dataset.code;
+                        document.getElementById('colorModal').style.display = 'flex';
+                    }
+                });
+
+                gridContainer.appendChild(cell);
+            }
+        }
+
+        refreshStats();
+    };
+});
+
+document.getElementById('confirmChangeBtn').addEventListener('click', () => {
+    if (!currentEditingCell) return;
+    const newCode = document.getElementById('modalColorSelect').value;
+    const newColorObj = MARD_PALETTE.find(c => c.code === newCode);
+
+    if (newColorObj) {
+        currentEditingCell.dataset.code = newCode;
+        currentEditingCell.style.backgroundColor = `rgb(${newColorObj.r}, ${newColorObj.g}, ${newColorObj.b})`;
+
+        const brightness = (newColorObj.r * 299 + newColorObj.g * 587 + newColorObj.b * 114) / 1000;
+        currentEditingCell.style.color = brightness > 128 ? '#000000' : '#ffffff';
+
+        if (document.getElementById('toggleText').checked) {
+            currentEditingCell.innerText = newCode;
+        }
+
+        refreshStats();
+    }
+    document.getElementById('colorModal').style.display = 'none';
+});
+
+document.getElementById('confirmBatchBtn').addEventListener('click', () => {
+    if (!batchSourceCode) return;
+    const targetCode = document.getElementById('batchColorSelect').value;
+    const targetColorObj = MARD_PALETTE.find(c => c.code === targetCode);
+
+    if (targetColorObj) {
+        const cells = document.querySelectorAll('.cell');
+        cells.forEach(cell => {
+            if (cell.dataset.code === batchSourceCode) {
+                cell.dataset.code = targetCode;
+                cell.style.backgroundColor = `rgb(${targetColorObj.r}, ${targetColorObj.g}, ${targetColorObj.b})`;
+
+                const brightness = (targetColorObj.r * 299 + targetColorObj.g * 587 + targetColorObj.b * 114) / 1000;
+                cell.style.color = brightness > 128 ? '#000000' : '#ffffff';
+
+                if (document.getElementById('toggleText').checked) {
+                    cell.innerText = targetCode;
+                }
+            }
+        });
+
+        refreshStats();
+    }
+
+    document.getElementById('batchModal').style.display = 'none';
+});
+
+document.getElementById('cancelChangeBtn').addEventListener('click', () => {
+    document.getElementById('colorModal').style.display = 'none';
+});
+document.getElementById('cancelBatchBtn').addEventListener('click', () => {
+    document.getElementById('batchModal').style.display = 'none';
+});
+
+const zoomRange = document.getElementById('zoomRange');
+const zoomVal = document.getElementById('zoomVal');
+const beadGridTransform = document.getElementById('beadGridTransform');
+
+zoomRange.addEventListener('input', (e) => {
+    const val = e.target.value;
+    zoomVal.innerText = `${val}%`;
+    beadGridTransform.style.transform = `scale(${val / 100})`;
+});
+
+document.getElementById('toggleText').addEventListener('change', (e) => {
+    const cells = document.querySelectorAll('.cell');
+    cells.forEach(cell => {
+        if (!e.target.checked) {
+            cell.innerText = '';
+        } else {
+            cell.innerText = cell.dataset.code;
+        }
+    });
+});
+
+// 高清图片导出
+document.getElementById('downloadBtn').addEventListener('click', () => {
+    const grid = document.getElementById('beadGrid');
+    if (!grid.children.length) {
+        alert("请先生成图纸再下载！");
+        return;
+    }
+
+    const gridW = parseInt(document.getElementById('gridWidth').value);
+    const gridH = parseInt(document.getElementById('gridHeight').value);
+    const isThick = document.getElementById('toggleThickGrid').checked;
+    
+    const cellSize = 36;
+    const axisSize = 30;
+
+    const margin3cm = 118;
+
+    const colorCounts = {};
+    const cells = grid.querySelectorAll('.cell');
+    cells.forEach(cell => {
+        const code = cell.dataset.code;
+        colorCounts[code] = (colorCounts[code] || 0) + 1;
+    });
+
+    const sortedCodes = Object.keys(colorCounts).sort((a, b) => 
+        a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+    );
+
+    const mainWidth = gridW * cellSize + axisSize;
+    const mainHeight = gridH * cellSize + axisSize;
+
+    const itemWidth = 140;
+    const itemHeight = 30;
+    const columnsCount = Math.max(1, Math.floor(mainWidth / itemWidth));
+    const rowsCount = Math.ceil(sortedCodes.length / columnsCount);
+    const statsBlockHeight = 40 + rowsCount * (itemHeight + 8) + 20;
+
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width = mainWidth;
+    outCanvas.height = margin3cm + mainHeight + statsBlockHeight + margin3cm;
+    const ctx = outCanvas.getContext('2d');
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, outCanvas.width, outCanvas.height);
+
+    const offsetY = margin3cm;
+
+    ctx.fillStyle = '#2c3e50';
+    ctx.fillRect(0, offsetY, mainWidth, mainHeight);
+
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    for (let x = 1; x <= gridW; x++) {
+        const posX = axisSize + (x - 0.5) * cellSize;
+        const isFive = isThick && (x % 5 === 0);
+        ctx.fillStyle = isFive ? '#fffa65' : '#ffffff';
+        ctx.fillText(x.toString(), posX, offsetY + axisSize / 2);
+    }
+
+    for (let y = 1; y <= gridH; y++) {
+        const posY = offsetY + axisSize + (y - 0.5) * cellSize;
+        const isFive = isThick && (y % 5 === 0);
+        ctx.fillStyle = isFive ? '#fffa65' : '#ffffff';
+        ctx.fillText(y.toString(), axisSize / 2, posY);
+    }
+
+    cells.forEach((cell, idx) => {
+        const colIdx = idx % gridW;
+        const rowIdx = Math.floor(idx / gridW);
+
+        const x = axisSize + colIdx * cellSize;
+        const y = offsetY + axisSize + rowIdx * cellSize;
+
+        ctx.fillStyle = cell.style.backgroundColor;
+        ctx.fillRect(x, y, cellSize, cellSize);
+
+        ctx.strokeStyle = '#a6b1b7';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x, y, cellSize, cellSize);
+
+        if (cell.innerText) {
+            ctx.fillStyle = cell.style.color;
+            ctx.font = 'bold 13px sans-serif';
+            ctx.fillText(cell.innerText, x + cellSize / 2, y + cellSize / 2);
+        }
+    });
+
+    if (isThick) {
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 3;
+
+        for (let x = 5; x < gridW; x += 5) {
+            const lineX = axisSize + x * cellSize;
+            ctx.beginPath();
+            ctx.moveTo(lineX, offsetY + axisSize);
+            ctx.lineTo(lineX, offsetY + mainHeight);
+            ctx.stroke();
+        }
+
+        for (let y = 5; y < gridH; y += 5) {
+            const lineY = offsetY + axisSize + y * cellSize;
+            ctx.beginPath();
+            ctx.moveTo(axisSize, lineY);
+            ctx.lineTo(mainWidth, lineY);
+            ctx.stroke();
+        }
+    }
+
+    const statsStartY = offsetY + mainHeight + 25;
+
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillText('📊 拼豆用量汇总清单 (Mard 221 系列):', 10, statsStartY);
+
+    const cardsStartY = statsStartY + 30;
+
+    sortedCodes.forEach((code, index) => {
+        const col = index % columnsCount;
+        const row = Math.floor(index / columnsCount);
+
+        const cardX = 10 + col * itemWidth;
+        const cardY = cardsStartY + row * (itemHeight + 8);
+        const count = colorCounts[code];
+        const colorObj = MARD_PALETTE.find(c => c.code === code);
+
+        if (!colorObj) return;
+
+        ctx.fillStyle = '#f8f9fa';
+        ctx.strokeStyle = '#e9ecef';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(cardX, cardY, itemWidth - 10, itemHeight, 6);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = `rgb(${colorObj.r}, ${colorObj.g}, ${colorObj.b})`;
+        ctx.fillRect(cardX + 6, cardY + 6, 18, 18);
+        ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+        ctx.strokeRect(cardX + 6, cardY + 6, 18, 18);
+
+        ctx.font = 'bold 13px sans-serif';
+        ctx.fillStyle = '#2d3436';
+        ctx.fillText(`${code}: ${count} 颗`, cardX + 30, cardY + 8);
+    });
+
+    const link = document.createElement('a');
+    link.download = `Mard_Pattern_Printable_${gridW}x${gridH}.png`;
+    link.href = outCanvas.toDataURL('image/png');
+    link.click();
+});
+</script>
+
+</body>
+</html>
