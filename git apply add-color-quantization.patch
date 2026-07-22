@@ -1,0 +1,248 @@
+--- a/index.html
++++ b/index.html
+@@ -191,15 +191,28 @@
+             <select id="algorithmSelect">
+                 <option value="ciede2000">💎 CIEDE2000 超精细人眼感知算法</option>
+                 <option value="cielab">⚡ CIELAB 标准算法</option>
+             </select>
+         </div>
+
++        <!-- 新增功能：色彩聚类/精简设置 -->
++        <div class="form-group">
++            <label>
++                <input type="checkbox" id="enableQuantize" checked> 4. 色彩聚类精简 (K-Means 算法)
++            </label>
++            <div id="quantizeControls" style="margin-top: 6px;">
++                <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.8rem; color: #666; margin-bottom: 4px;">
++                    <span>目标调色板色号数:</span>
++                    <strong id="kValDisplay" style="color: var(--primary);">20 个色号</strong>
++                </div>
++                <input type="range" id="maxColorsRange" min="2" max="50" value="20" oninput="document.getElementById('kValDisplay').innerText = this.value + ' 个色号'">
++            </div>
++        </div>
++
+         <div class="form-group">
+-            <label>4. 肤色偏置修正</label>
++            <label>5. 肤色偏置修正</label>
+             <select id="skinColorSelect">
+                 <option value="AUTO">✨ 算法精准实采匹配</option>
+                 <option value="E14">E14 (暖粉白/白皙)</option>
+                 <option value="E16">E16 (冷白肉粉)</option>
+                 <option value="E11">E11 (暖粉肤色)</option>
+                 <option value="F14">F14 (嫩嫩肉粉)</option>
+                 <option value="F16">F16 (自然浅肤)</option>
+                 <option value="F17">F17 (暖小麦肤)</option>
+                 <option value="F20">F20 (灰调阴影肤)</option>
+                 <option value="M14">M14 (深暗调肤色)</option>
+             </select>
+         </div>
+
+         <div class="form-group">
+-            <label>5. 列数 (Width) / 行数 (Height)</label>
++            <label>6. 列数 (Width) / 行数 (Height)</label>
+             <div style="display: flex; gap: 8px;">
+                 <input type="number" id="gridWidth" value="24" min="5" max="100">
+                 <input type="number" id="gridHeight" value="24" min="5" max="100">
+             </div>
+         </div>
+@@ -321,12 +334,17 @@
+ let isMultiSelectMode = false;
+ let selectedCells = new Set();
+
+ let isAPressed = false;
+ let isMouseDown = false;
+
++// UI 显示控制
++document.getElementById('enableQuantize').addEventListener('change', (e) => {
++    document.getElementById('quantizeControls').style.display = e.target.checked ? 'block' : 'none';
++});
+
+ function populateDropdown(selectElement) {
+     selectElement.innerHTML = '';
+     SORTED_PALETTE.forEach(c => {
+         const opt = document.createElement('option');
+         opt.value = c.code;
+         opt.innerText = `${c.code} (RGB: ${c.r},${c.g},${c.b})`;
+@@ -420,10 +438,82 @@
+     const S_H = 1 + 0.015 * C_bar_prime * T;
+     const R_T = -Math.sin(2 * delta_theta * Math.PI / 180) * R_C;
+
+     return Math.sqrt(
+         Math.pow(delta_L_prime / S_L, 2) +
+         Math.pow(delta_C_prime / S_C, 2) +
+         Math.pow(delta_H_prime / S_H, 2) +
+         R_T * (delta_C_prime / S_C) * (delta_H_prime / S_H)
+     );
+ }
+
++/**
++ * K-Means 算法：将 RGB 颜色数组聚类精简到 K 个色彩中心
++ */
++function kmeansQuantizeColors(rgbArray, k = 20, maxIterations = 10) {
++    if (!rgbArray || rgbArray.length === 0) return [];
++    if (rgbArray.length <= k) return rgbArray;
+
++    let centroids = [];
++    // 随机选择 K 个初始质心
++    const step = Math.floor(rgbArray.length / k);
++    for (let i = 0; i < k; i++) {
++        centroids.push([...rgbArray[i * step]]);
++    }
+
++    for (let iter = 0; iter < maxIterations; iter++) {
++        const clusters = Array.from({ length: k }, () => []);
+
++        // 分配到最近质心
++        for (let i = 0; i < rgbArray.length; i++) {
++            const pixel = rgbArray[i];
++            let minDistance = Infinity;
++            let closestIdx = 0;
+
++            for (let c = 0; c < k; c++) {
++                const dist = Math.hypot(
++                    pixel[0] - centroids[c][0],
++                    pixel[1] - centroids[c][1],
++                    pixel[2] - centroids[c][2]
++                );
++                if (dist < minDistance) {
++                    minDistance = dist;
++                    closestIdx = c;
++                }
++            }
++            clusters[closestIdx].push(pixel);
++        }
+
++        // 重新计算质心
++        let moved = false;
++        for (let c = 0; c < k; c++) {
++            if (clusters[c].length === 0) continue;
++            let sumR = 0, sumG = 0, sumB = 0;
++            for (let p of clusters[c]) {
++                sumR += p[0];
++                sumG += p[1];
++                sumB += p[2];
++            }
++            const avgR = Math.round(sumR / clusters[c].length);
++            const avgG = Math.round(sumG / clusters[c].length);
++            const avgB = Math.round(sumB / clusters[c].length);
+
++            if (avgR !== centroids[c][0] || avgG !== centroids[c][1] || avgB !== centroids[c][2]) {
++                centroids[c] = [avgR, avgG, avgB];
++                moved = true;
++            }
++        }
+
++        if (!moved) break;
++    }
+
++    // 将原图片中的每个颜色映射为其所属集群的质心颜色
++    return rgbArray.map(pixel => {
++        let minDistance = Infinity;
++        let closestCentroid = centroids[0];
++        for (let c = 0; c < k; c++) {
++            const dist = Math.hypot(
++                pixel[0] - centroids[c][0],
++                pixel[1] - centroids[c][1],
++                pixel[2] - centroids[c][2]
++            );
++            if (dist < minDistance) {
++                minDistance = dist;
++                closestCentroid = centroids[c];
++            }
++        }
++        return closestCentroid;
++    });
++}
+
+ function getNearestMardColor(r, g, b, algo, selectedSkinCode) {
+@@ -628,12 +718,16 @@
+     const algo = document.getElementById('algorithmSelect').value;
+     const selectedSkinCode = document.getElementById('skinColorSelect').value;
+     const showText = document.getElementById('toggleText').checked;
+     const isThick = document.getElementById('toggleThickGrid').checked;
++    
++    // K-Means 精简参数
++    const enableQuantize = document.getElementById('enableQuantize').checked;
++    const maxK = parseInt(document.getElementById('maxColorsRange').value);
+
+     const img = new Image();
+     img.src = URL.createObjectURL(fileInput.files[0]);
+
+     img.onload = () => {
+         exitMultiSelectMode();
+
+         buildAxesAndGrid(gridW, gridH);
+
+         const canvas = document.createElement('canvas');
+         canvas.width = img.width;
+         canvas.height = img.height;
+         const ctx = canvas.getContext('2d');
+         ctx.drawImage(img, 0, 0);
+
+         const cellWidth = img.width / gridW;
+         const cellHeight = img.height / gridH;
+
++        // 1. 采集每个格子的平均 RGB
++        const rawGridColors = [];
+         for (let y = 0; y < gridH; y++) {
+             for (let x = 0; x < gridW; x++) {
+                 let sampleX, sampleY, sampleW, sampleH;
+
+                 if (mode === 'has_grid') {
+                     sampleX = Math.floor(x * cellWidth + cellWidth * 0.325);
+                     sampleY = Math.floor(y * cellHeight + cellHeight * 0.325);
+                     sampleW = Math.max(1, Math.floor(cellWidth * 0.35));
+                     sampleH = Math.max(1, Math.floor(cellHeight * 0.35));
+                 } else {
+                     sampleX = Math.floor(x * cellWidth);
+                     sampleY = Math.floor(y * cellHeight);
+                     sampleW = Math.max(1, Math.floor(cellWidth));
+                     sampleH = Math.max(1, Math.floor(cellHeight));
+                 }
+
+                 const imgData = ctx.getImageData(sampleX, sampleY, sampleW, sampleH).data;
+                 let totalR = 0, totalG = 0, totalB = 0, count = 0;
+
+                 for (let i = 0; i < imgData.length; i += 4) {
+                     const alpha = imgData[i + 3];
+                     if (alpha > 128) {
+                         totalR += imgData[i];
+                         totalG += imgData[i + 1];
+                         totalB += imgData[i + 2];
+                         count++;
+                     }
+                 }
+
+                 let avgR = 255, avgG = 255, avgB = 255;
+                 if (count > 0) {
+                     avgR = Math.round(totalR / count);
+                     avgG = Math.round(totalG / count);
+                     avgB = Math.round(totalB / count);
+                 }
++                rawGridColors.push([avgR, avgG, avgB]);
++            }
++        }
+
++        // 2. 如果开启聚类精简，使用 K-Means 进行聚类降色
++        let processedColors = rawGridColors;
++        if (enableQuantize) {
++            processedColors = kmeansQuantizeColors(rawGridColors, maxK);
++        }
+
++        // 3. 渲染网格并进行色号匹配
+         const gridContainer = document.getElementById('beadGrid');
+         gridContainer.innerHTML = '';
+         gridContainer.style.gridTemplateColumns = `repeat(${gridW}, 20px)`;
+         gridContainer.style.gridTemplateRows = `repeat(${gridH}, 20px)`;
+
+         activeHighlightCode = null;
+
++        for (let i = 0; i < processedColors.length; i++) {
++            const x = i % gridW;
++            const y = Math.floor(i / gridW);
++            const [r, g, b] = processedColors[i];
+
++            const matchedColor = getNearestMardColor(r, g, b, algo, selectedSkinCode);
+
+                 const cell = document.createElement('div');
+                 cell.className = 'cell';
