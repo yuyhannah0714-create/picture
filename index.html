@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mard 221 高精拼豆图纸生成器 (拖拽拉框多选版)</title>
+    <title>Mard 221 高精拼豆图纸生成器 (高亮框选改色版)</title>
     <!-- 引入前端 AI 人脸检测库 -->
     <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
     <style>
@@ -150,7 +150,7 @@
             font-size: 0.85rem;
         }
         .grid-container-wrapper {
-            position: relative;
+            position: relative; /* 用于框选框定位 */
             overflow: auto;
             max-width: 100%;
             max-height: 65vh;
@@ -161,21 +161,21 @@
             box-sizing: border-box;
             user-select: none;
         }
-
-        /* 矩形框选视觉虚线框 */
-        #selectionBox {
-            display: none;
-            position: absolute;
-            border: 2px dashed var(--select-color);
-            background-color: rgba(255, 159, 26, 0.25);
-            pointer-events: none;
-            z-index: 100;
-        }
-
         #beadGridTransform {
             transform-origin: top left;
             transition: transform 0.1s ease-out;
             display: inline-block;
+            position: relative;
+        }
+
+        /* 橙色半透明框选框 */
+        #selectionBox {
+            display: none;
+            position: absolute;
+            border: 2px dashed #ff9f1a;
+            background-color: rgba(255, 159, 26, 0.3);
+            pointer-events: none;
+            z-index: 100;
         }
 
         .grid-with-axis {
@@ -258,6 +258,9 @@
         }
 
         body.is-a-pressed .cell {
+            cursor: crosshair !important;
+        }
+        body.is-s-pressed .grid-container-wrapper {
             cursor: crosshair !important;
         }
 
@@ -483,17 +486,17 @@
         </div>
 
         <div class="multi-select-bar" id="multiSelectBar">
-            <div class="multi-info" id="multiSelectInfo">🎨 框选模式：按住鼠标左键拉出橙色方框批量选中【高亮格子】</div>
+            <div class="multi-info" id="multiSelectInfo">🎨 改色模式：按住 A 键拖拽划选，或按住 S 键拖拽拉出橙色框选中高亮格子</div>
             <div class="multi-controls">
                 <button id="selectAllSameBtn" style="background:#f39c12; color:white; padding:6px 10px; margin-top:0; width:auto;">全选当前高亮</button>
                 <select id="multiTargetColorSelect"></select>
                 <button class="btn-multi-apply" id="applyMultiChangeBtn">确定修改选中项</button>
-                <button class="btn-multi-cancel" id="cancelMultiBtn">退出框选</button>
+                <button class="btn-multi-cancel" id="cancelMultiBtn">退出改色</button>
             </div>
         </div>
 
         <div class="grid-container-wrapper" id="gridWrapper">
-            <!-- 矩形框选 DOM 元素 -->
+            <!-- 橙色半透明框选框 -->
             <div id="selectionBox"></div>
             <div id="beadGridTransform">
                 <div class="grid-with-axis" id="gridWithAxis">
@@ -505,7 +508,7 @@
             </div>
         </div>
 
-        <h2>📊 拼豆用量统计 (点击高亮某种颜色，可拉框框选/批量替换)</h2>
+        <h2>📊 拼豆用量统计 (点击高亮某种颜色；双击高亮格子进入改色模式)</h2>
         <div class="palette-stats" id="paletteStats"></div>
     </div>
 </div>
@@ -616,12 +619,12 @@ let batchSourceCode = null;
 
 let isMultiSelectMode = false;
 let selectedCells = new Set();
-let isAPressed = false;
 
-// 矩形拖拽框选核心变量
-let isDraggingBox = false;
-let dragStartX = 0;
-let dragStartY = 0;
+let isAPressed = false;
+let isSPressed = false;
+let isMouseDown = false;
+let isSelectingBox = false;
+let boxStart = { x: 0, y: 0 };
 
 function populateDropdown(selectElement) {
     selectElement.innerHTML = '';
@@ -914,7 +917,7 @@ function enterMultiSelectMode(initialCell = null) {
     document.getElementById('multiSelectBar').classList.add('active');
 
     if (initialCell) {
-        toggleSelectCell(initialCell);
+        addSelectCell(initialCell);
     } else {
         updateMultiSelectUI();
     }
@@ -927,146 +930,145 @@ function exitMultiSelectMode() {
     document.getElementById('multiSelectBar').classList.remove('active');
 }
 
-// 判定格子是否可以被框选中 (仅限高亮状态的格子)
+// 核心规则判断：只有高亮状态下的格子才允许被选中！
 function isCellSelectable(cell) {
+    if (!cell) return false;
     if (activeHighlightCode !== null) {
         return cell.dataset.code === activeHighlightCode;
     }
+    // 未设置高亮时拦截变暗格子
     return !cell.classList.contains('dimmed');
 }
 
-function toggleSelectCell(cell) {
+function addSelectCell(cell) {
     if (!isCellSelectable(cell)) return;
 
-    if (selectedCells.has(cell)) {
-        selectedCells.delete(cell);
-        cell.classList.remove('selected-multi');
-    } else {
+    if (!selectedCells.has(cell)) {
         selectedCells.add(cell);
         cell.classList.add('selected-multi');
+        updateMultiSelectUI();
     }
-    updateMultiSelectUI();
 }
 
 function updateMultiSelectUI() {
-    document.getElementById('multiSelectInfo').innerText = `🎨 框选模式：已选中 ${selectedCells.size} 个高亮格子 (按住鼠标划出方框批量框选)`;
+    document.getElementById('multiSelectInfo').innerText = `🎨 改色模式：已选中 ${selectedCells.size} 个高亮格子 (按 A 划选 / 按 S 框选)`;
 }
 
-// === 🎯 拖拽矩形框选 (Rectangle Selection) 引擎 ===
-const gridWrapper = document.getElementById('gridWrapper');
-const selectionBox = document.getElementById('selectionBox');
-
-gridWrapper.addEventListener('mousedown', (e) => {
-    // 只有在开启多选状态或者按住了 A 键时激活拖拽框选
-    if (!isMultiSelectMode && !isAPressed) return;
-    
-    // 如果没有开启多选，按下鼠标直接自动开启多选栏
-    if (!isMultiSelectMode) {
-        enterMultiSelectMode();
-    }
-
-    isDraggingBox = true;
-    const rect = gridWrapper.getBoundingClientRect();
-    dragStartX = e.clientX - rect.left + gridWrapper.scrollLeft;
-    dragStartY = e.clientY - rect.top + gridWrapper.scrollTop;
-
-    selectionBox.style.left = `${dragStartX}px`;
-    selectionBox.style.top = `${dragStartY}px`;
-    selectionBox.style.width = '0px';
-    selectionBox.style.height = '0px';
-    selectionBox.style.display = 'block';
-});
-
-gridWrapper.addEventListener('mousemove', (e) => {
-    if (!isDraggingBox) return;
-
-    const rect = gridWrapper.getBoundingClientRect();
-    const currentX = e.clientX - rect.left + gridWrapper.scrollLeft;
-    const currentY = e.clientY - rect.top + gridWrapper.scrollTop;
-
-    const left = Math.min(dragStartX, currentX);
-    const top = Math.min(dragStartY, currentY);
-    const width = Math.abs(currentX - dragStartX);
-    const height = Math.abs(currentY - dragStartY);
-
-    selectionBox.style.left = `${left}px`;
-    selectionBox.style.top = `${top}px`;
-    selectionBox.style.width = `${width}px`;
-    selectionBox.style.height = `${height}px`;
-});
-
-window.addEventListener('mouseup', (e) => {
-    if (!isDraggingBox) return;
-    isDraggingBox = false;
-
-    const selBoxRect = selectionBox.getBoundingClientRect();
-    selectionBox.style.display = 'none';
-
-    // 如果只是原地轻微点击（非拉框拖拽），交由格子的 click 事件处理
-    if (selBoxRect.width < 5 && selBoxRect.height < 5) return;
-
-    // 遍历所有格子，判定哪些格子落在拖拽框范围内
-    const cells = document.querySelectorAll('.cell');
-    cells.forEach(cell => {
-        if (!isCellSelectable(cell)) return; // 自动过滤非高亮格子
-
-        const cellRect = cell.getBoundingClientRect();
-
-        // 碰撞/交叉检测 (Intersection Test)
-        const isIntersect = !(
-            cellRect.right < selBoxRect.left ||
-            cellRect.left > selBoxRect.right ||
-            cellRect.bottom < selBoxRect.top ||
-            cellRect.top > selBoxRect.bottom
-        );
-
-        if (isIntersect) {
-            selectedCells.add(cell);
-            cell.classList.add('selected-multi');
-        }
-    });
-
-    updateMultiSelectUI();
-});
-
+// 键盘按键监听 (A 键与 S 键)
 window.addEventListener('keydown', (e) => {
-    if (e.key.toLowerCase() === 'a' && !isAPressed) {
-        if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
-        
+    if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+
+    const key = e.key.toLowerCase();
+    if (key === 'a' && !isAPressed) {
         isAPressed = true;
         document.body.classList.add('is-a-pressed');
-        
-        if (!isMultiSelectMode) {
-            enterMultiSelectMode();
-        }
+    }
+    if (key === 's' && !isSPressed) {
+        isSPressed = true;
+        document.body.classList.add('is-s-pressed');
     }
 });
 
 window.addEventListener('keyup', (e) => {
-    if (e.key.toLowerCase() === 'a') {
+    const key = e.key.toLowerCase();
+    if (key === 'a') {
         isAPressed = false;
         document.body.classList.remove('is-a-pressed');
     }
+    if (key === 's') {
+        isSPressed = false;
+        document.body.classList.remove('is-s-pressed');
+    }
 });
 
+// 全局鼠标拖拽与 S 键框选逻辑
+const gridWrapper = document.getElementById('gridWrapper');
+const selectionBox = document.getElementById('selectionBox');
+
+gridWrapper.addEventListener('mousedown', (e) => {
+    isMouseDown = true;
+
+    // 需求 3：在改色模式下，按住 S 键拉出橙色半透明框框
+    if (isMultiSelectMode && isSPressed) {
+        isSelectingBox = true;
+        const rect = gridWrapper.getBoundingClientRect();
+        boxStart.x = e.clientX - rect.left + gridWrapper.scrollLeft;
+        boxStart.y = e.clientY - rect.top + gridWrapper.scrollTop;
+
+        selectionBox.style.left = `${boxStart.x}px`;
+        selectionBox.style.top = `${boxStart.y}px`;
+        selectionBox.style.width = '0px';
+        selectionBox.style.height = '0px';
+        selectionBox.style.display = 'block';
+
+        e.preventDefault(); // 防止拖拽文本选中
+    }
+});
+
+window.addEventListener('mousemove', (e) => {
+    if (!isMouseDown) return;
+
+    // S 键框选拉动中
+    if (isSelectingBox) {
+        const rect = gridWrapper.getBoundingClientRect();
+        const currentX = e.clientX - rect.left + gridWrapper.scrollLeft;
+        const currentY = e.clientY - rect.top + gridWrapper.scrollTop;
+
+        const left = Math.min(boxStart.x, currentX);
+        const top = Math.min(boxStart.y, currentY);
+        const width = Math.abs(currentX - boxStart.x);
+        const height = Math.abs(currentY - boxStart.y);
+
+        selectionBox.style.left = `${left}px`;
+        selectionBox.style.top = `${top}px`;
+        selectionBox.style.width = `${width}px`;
+        selectionBox.style.height = `${height}px`;
+
+        // 碰撞检测：框内的【高亮格子】会被选中
+        const boxRect = selectionBox.getBoundingClientRect();
+        const cells = document.querySelectorAll('.cell');
+
+        cells.forEach(cell => {
+            if (isCellSelectable(cell)) {
+                const cRect = cell.getBoundingClientRect();
+                // 判断重叠 (Overlap)
+                const isIntersect = !(cRect.right < boxRect.left || 
+                                      cRect.left > boxRect.right || 
+                                      cRect.bottom < boxRect.top || 
+                                      cRect.top > boxRect.bottom);
+                if (isIntersect) {
+                    addSelectCell(cell);
+                }
+            }
+        });
+    }
+});
+
+window.addEventListener('mouseup', () => {
+    isMouseDown = false;
+    if (isSelectingBox) {
+        isSelectingBox = false;
+        selectionBox.style.display = 'none';
+    }
+});
+
+// 全选当前高亮格子
 document.getElementById('selectAllSameBtn').addEventListener('click', () => {
     if (!activeHighlightCode) {
-        alert("提示：请先在下方【拼豆用量统计】中点击某种颜色高亮它，然后再点击全选！");
+        alert("提示：请先在下方【拼豆用量统计】中点击某种颜色高亮它！");
         return;
     }
     const cells = document.querySelectorAll('.cell');
     cells.forEach(cell => {
         if (cell.dataset.code === activeHighlightCode) {
-            selectedCells.add(cell);
-            cell.classList.add('selected-multi');
+            addSelectCell(cell);
         }
     });
-    updateMultiSelectUI();
 });
 
 document.getElementById('applyMultiChangeBtn').addEventListener('click', () => {
     if (selectedCells.size === 0) {
-        alert("请先拉框框选至少一个高亮格子！");
+        alert("请先选择至少一个高亮格子！");
         return;
     }
 
@@ -1331,19 +1333,31 @@ document.getElementById('processBtn').addEventListener('click', async () => {
             if (showText) cell.innerText = matchedColor.code;
             cell.title = `坐标: (${x + 1}, ${y + 1})\n色号: ${matchedColor.code}${pixel.isInsideFace ? ' (👤人脸保护区域)' : ''}`;
 
+            // 单击：高亮某色 / 改色模式下点选
             cell.addEventListener('click', () => {
-                if (isMultiSelectMode) {
-                    toggleSelectCell(cell);
-                } else {
+                if (!isMultiSelectMode) {
                     toggleHighlight(cell.dataset.code);
                 }
             });
 
+            // 需求 2：改色模式下，鼠标滑过 + 按住 A 键才选中
+            cell.addEventListener('mouseenter', () => {
+                if (isMultiSelectMode && isMouseDown && isAPressed) {
+                    addSelectCell(cell);
+                }
+            });
+
+            // 需求 1：只有双击高亮格子才进入多选改色模式，并选中当前格子
             cell.addEventListener('dblclick', (e) => {
                 e.stopPropagation();
-                if (activeHighlightCode !== null) {
-                    enterMultiSelectMode(cell);
+                if (isCellSelectable(cell)) {
+                    if (!isMultiSelectMode) {
+                        enterMultiSelectMode(cell);
+                    } else {
+                        addSelectCell(cell);
+                    }
                 } else {
+                    // 如果不是高亮格子，弹出单格修改
                     currentEditingCell = cell;
                     document.getElementById('modalColorSelect').value = cell.dataset.code;
                     document.getElementById('colorModal').style.display = 'flex';
