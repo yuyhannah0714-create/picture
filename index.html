@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mard 221 高精拼豆图纸生成器 (A键滑动多选版)</title>
+    <title>Mard 221 高精拼豆图纸生成器 (色彩精简聚类版)</title>
     <style>
         :root {
             --bg-color: #f4f6f9;
@@ -242,7 +242,6 @@
             z-index: 10;
         }
 
-        /* 按住 A 键时的准星提示 */
         body.is-a-pressed .cell {
             cursor: crosshair !important;
         }
@@ -333,6 +332,15 @@
         .modal-card h3 { margin-top: 0; font-size: 1rem; }
         .modal-card select { margin-bottom: 15px; }
         .modal-btns { display: flex; gap: 10px; }
+
+        /* 算法控制盒样式 */
+        .algo-box {
+            background: #eef5ff;
+            border: 1px solid #b3d4fc;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+        }
     </style>
 </head>
 <body>
@@ -362,6 +370,19 @@
             </select>
         </div>
 
+        <!-- 新增算法限制：直接输入色号数量 -->
+        <div class="algo-box">
+            <div class="form-group" style="margin-bottom: 6px;">
+                <label style="color: #1b4f72;">
+                    <input type="checkbox" id="enableColorLimit"> 🧩 开启色彩数量精简(聚类)算法
+                </label>
+            </div>
+            <div class="form-group" id="limitCountGroup" style="margin-bottom: 0;">
+                <label>目标最多使用颜色数（输入数字）：</label>
+                <input type="number" id="maxColorInput" value="20" min="2" max="100" placeholder="直接输入数字，例如 20">
+            </div>
+        </div>
+
         <div class="form-group">
             <label>4. 肤色偏置修正</label>
             <select id="skinColorSelect">
@@ -387,8 +408,13 @@
 
         <div class="form-group">
             <label>
-                <input type="checkbox" id="toggleThickGrid" checked> 逢 5 加粗网格 (每 5 行列加粗)
+                <input type="checkbox" id="toggleThickGrid" checked> 启用加粗网格线框
             </label>
+            <div style="display: flex; align-items: center; gap: 6px; margin-top: 4px;">
+                <span style="font-size: 0.8rem;">间隔：每</span>
+                <input type="number" id="thickStepInput" value="5" min="2" max="50" style="width: 70px; padding: 4px 8px;">
+                <span style="font-size: 0.8rem;">行列加粗</span>
+            </div>
         </div>
 
         <div class="form-group">
@@ -438,7 +464,7 @@
     </div>
 </div>
 
-<!-- 1. 单格修改色号弹窗 -->
+<!-- 单格修改色号弹窗 -->
 <div class="modal-overlay" id="colorModal">
     <div class="modal-card">
         <h3>🎨 单格手动修改色号</h3>
@@ -453,7 +479,7 @@
     </div>
 </div>
 
-<!-- 2. 全图批量修改色号弹窗 -->
+<!-- 全图批量修改色号弹窗 -->
 <div class="modal-overlay" id="batchModal">
     <div class="modal-card">
         <h3>🔄 全图统一替换色号</h3>
@@ -637,14 +663,14 @@ function ciede2000(lab1, lab2) {
     );
 }
 
-function getNearestMardColor(r, g, b, algo, selectedSkinCode) {
+function getNearestMardColor(r, g, b, algo, selectedSkinCode, candidatePalette = MARD_PALETTE) {
     const lab1 = rgbToLab(r, g, b);
     let minDistance = Infinity;
-    let closestColor = MARD_PALETTE[0];
+    let closestColor = candidatePalette[0];
 
     const isSkinZone = (r > 130 && g > 90 && b > 80 && (r >= g));
 
-    for (let color of MARD_PALETTE) {
+    for (let color of candidatePalette) {
         const lab2 = rgbToLab(color.r, color.g, color.b);
         let distance = 0;
 
@@ -670,6 +696,78 @@ function getNearestMardColor(r, g, b, algo, selectedSkinCode) {
         }
     }
     return closestColor;
+}
+
+// K-Means 色彩聚类算法：将原始提取的多元色彩整合合并为 K 种最佳 Mard 色号
+function reduceColorsToK(rawPixels, k, algo) {
+    if (rawPixels.length === 0) return [];
+    
+    // 1. 获取所有出现的匹配 Mard 色号频次
+    const counts = {};
+    rawPixels.forEach(p => {
+        const code = p.matched.code;
+        counts[code] = (counts[code] || 0) + 1;
+    });
+
+    const uniqueCodes = Object.keys(counts);
+    if (uniqueCodes.length <= k) {
+        return uniqueCodes.map(code => MARD_PALETTE.find(c => c.code === code));
+    }
+
+    // 2. 选出频次最高的前 K 个颜色作为初始聚类中心
+    uniqueCodes.sort((a, b) => counts[b] - counts[a]);
+    let centroids = uniqueCodes.slice(0, k).map(code => {
+        const c = MARD_PALETTE.find(item => item.code === code);
+        return { r: c.r, g: c.g, b: c.b };
+    });
+
+    // 3. 迭代 K-Means (10次即可收敛)
+    for (let iter = 0; iter < 10; iter++) {
+        const clusters = Array.from({ length: k }, () => []);
+        
+        rawPixels.forEach(pixel => {
+            let minDist = Infinity;
+            let bestClusterIdx = 0;
+            
+            centroids.forEach((cent, idx) => {
+                const dist = Math.sqrt(
+                    Math.pow(pixel.r - cent.r, 2) + 
+                    Math.pow(pixel.g - cent.g, 2) + 
+                    Math.pow(pixel.b - cent.b, 2)
+                );
+                if (dist < minDist) {
+                    minDist = dist;
+                    bestClusterIdx = idx;
+                }
+            });
+            clusters[bestClusterIdx].push(pixel);
+        });
+
+        // 重新计算中心点
+        centroids = clusters.map((cluster, idx) => {
+            if (cluster.length === 0) return centroids[idx];
+            let sumR = 0, sumG = 0, sumB = 0;
+            cluster.forEach(p => {
+                sumR += p.r;
+                sumG += p.g;
+                sumB += p.b;
+            });
+            return {
+                r: Math.round(sumR / cluster.length),
+                g: Math.round(sumG / cluster.length),
+                b: Math.round(sumB / cluster.length)
+            };
+        });
+    }
+
+    // 4. 将算出的中心点映射到最接近的真实 Mard 色号
+    const finalPaletteMap = new Set();
+    centroids.forEach(cent => {
+        const mard = getNearestMardColor(cent.r, cent.g, cent.b, algo, 'AUTO', MARD_PALETTE);
+        finalPaletteMap.add(mard);
+    });
+
+    return Array.from(finalPaletteMap);
 }
 
 function toggleHighlight(code) {
@@ -735,7 +833,7 @@ function updateMultiSelectUI() {
     document.getElementById('multiSelectInfo').innerText = `🎨 多选改色模式：已选中 ${selectedCells.size} 个格子 (按住 A 键+鼠标滑动框选)`;
 }
 
-// 修改为键盘按住 A 键
+// 键盘按住 A 键多选
 window.addEventListener('keydown', (e) => {
     if (e.key.toLowerCase() === 'a' && !isAPressed) {
         if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
@@ -865,11 +963,12 @@ function buildAxesAndGrid(gridW, gridH) {
     axisY.style.gridTemplateRows = `repeat(${gridH}, 20px)`;
 
     const isThick = document.getElementById('toggleThickGrid').checked;
+    const step = parseInt(document.getElementById('thickStepInput').value) || 5;
 
     for (let x = 1; x <= gridW; x++) {
         const cell = document.createElement('div');
         cell.className = 'axis-x-cell';
-        if (isThick && x % 5 === 0) cell.classList.add('thick-border');
+        if (isThick && x % step === 0) cell.classList.add('thick-border');
         cell.innerText = x;
         axisX.appendChild(cell);
     }
@@ -877,7 +976,7 @@ function buildAxesAndGrid(gridW, gridH) {
     for (let y = 1; y <= gridH; y++) {
         const cell = document.createElement('div');
         cell.className = 'axis-y-cell';
-        if (isThick && y % 5 === 0) cell.classList.add('thick-border');
+        if (isThick && y % step === 0) cell.classList.add('thick-border');
         cell.innerText = y;
         axisY.appendChild(cell);
     }
@@ -885,13 +984,14 @@ function buildAxesAndGrid(gridW, gridH) {
 
 function updateThickGridDisplay() {
     const isThick = document.getElementById('toggleThickGrid').checked;
+    const step = parseInt(document.getElementById('thickStepInput').value) || 5;
     const gridW = parseInt(document.getElementById('gridWidth').value);
     const gridH = parseInt(document.getElementById('gridHeight').value);
 
     const xCells = document.querySelectorAll('.axis-x-cell');
     xCells.forEach((cell, idx) => {
         const x = idx + 1;
-        if (isThick && x % 5 === 0) {
+        if (isThick && x % step === 0) {
             cell.classList.add('thick-border');
         } else {
             cell.classList.remove('thick-border');
@@ -901,7 +1001,7 @@ function updateThickGridDisplay() {
     const yCells = document.querySelectorAll('.axis-y-cell');
     yCells.forEach((cell, idx) => {
         const y = idx + 1;
-        if (isThick && y % 5 === 0) {
+        if (isThick && y % step === 0) {
             cell.classList.add('thick-border');
         } else {
             cell.classList.remove('thick-border');
@@ -913,13 +1013,13 @@ function updateThickGridDisplay() {
         const x = (idx % gridW) + 1;
         const y = Math.floor(idx / gridW) + 1;
 
-        if (isThick && x % 5 === 0 && x !== gridW) {
+        if (isThick && x % step === 0 && x !== gridW) {
             cell.classList.add('thick-right');
         } else {
             cell.classList.remove('thick-right');
         }
 
-        if (isThick && y % 5 === 0 && y !== gridH) {
+        if (isThick && y % step === 0 && y !== gridH) {
             cell.classList.add('thick-bottom');
         } else {
             cell.classList.remove('thick-bottom');
@@ -928,6 +1028,7 @@ function updateThickGridDisplay() {
 }
 
 document.getElementById('toggleThickGrid').addEventListener('change', updateThickGridDisplay);
+document.getElementById('thickStepInput').addEventListener('input', updateThickGridDisplay);
 
 document.getElementById('processBtn').addEventListener('click', () => {
     const fileInput = document.getElementById('imageInput');
@@ -943,13 +1044,16 @@ document.getElementById('processBtn').addEventListener('click', () => {
     const selectedSkinCode = document.getElementById('skinColorSelect').value;
     const showText = document.getElementById('toggleText').checked;
     const isThick = document.getElementById('toggleThickGrid').checked;
+    const thickStep = parseInt(document.getElementById('thickStepInput').value) || 5;
+
+    const enableLimit = document.getElementById('enableColorLimit').checked;
+    const maxColorNum = parseInt(document.getElementById('maxColorInput').value) || 20;
 
     const img = new Image();
     img.src = URL.createObjectURL(fileInput.files[0]);
 
     img.onload = () => {
         exitMultiSelectMode();
-
         buildAxesAndGrid(gridW, gridH);
 
         const canvas = document.createElement('canvas');
@@ -961,13 +1065,8 @@ document.getElementById('processBtn').addEventListener('click', () => {
         const cellWidth = img.width / gridW;
         const cellHeight = img.height / gridH;
 
-        const gridContainer = document.getElementById('beadGrid');
-        gridContainer.innerHTML = '';
-        gridContainer.style.gridTemplateColumns = `repeat(${gridW}, 20px)`;
-        gridContainer.style.gridTemplateRows = `repeat(${gridH}, 20px)`;
-
-        activeHighlightCode = null;
-
+        // 1. 采集全图原始 RGB 点数据
+        const rawPixels = [];
         for (let y = 0; y < gridH; y++) {
             for (let x = 0; x < gridW; x++) {
                 let sampleX, sampleY, sampleW, sampleH;
@@ -988,8 +1087,7 @@ document.getElementById('processBtn').addEventListener('click', () => {
                 let totalR = 0, totalG = 0, totalB = 0, count = 0;
 
                 for (let i = 0; i < imgData.length; i += 4) {
-                    const alpha = imgData[i + 3];
-                    if (alpha > 128) {
+                    if (imgData[i + 3] > 128) {
                         totalR += imgData[i];
                         totalG += imgData[i + 1];
                         totalB += imgData[i + 2];
@@ -1004,62 +1102,87 @@ document.getElementById('processBtn').addEventListener('click', () => {
                     avgB = Math.round(totalB / count);
                 }
 
-                const matchedColor = getNearestMardColor(avgR, avgG, avgB, algo, selectedSkinCode);
-
-                const cell = document.createElement('div');
-                cell.className = 'cell';
-                
-                if (isThick) {
-                    if ((x + 1) % 5 === 0 && (x + 1) !== gridW) cell.classList.add('thick-right');
-                    if ((y + 1) % 5 === 0 && (y + 1) !== gridH) cell.classList.add('thick-bottom');
-                }
-
-                cell.dataset.code = matchedColor.code;
-                cell.style.backgroundColor = `rgb(${matchedColor.r}, ${matchedColor.g}, ${matchedColor.b})`;
-
-                const brightness = (matchedColor.r * 299 + matchedColor.g * 587 + matchedColor.b * 114) / 1000;
-                cell.style.color = brightness > 128 ? '#000000' : '#ffffff';
-
-                if (showText) cell.innerText = matchedColor.code;
-                cell.title = `坐标: (${x + 1}, ${y + 1})\n色号: ${matchedColor.code}`;
-
-                cell.addEventListener('click', () => {
-                    if (isMultiSelectMode) {
-                        toggleSelectCell(cell);
-                    } else {
-                        toggleHighlight(cell.dataset.code);
-                    }
-                });
-
-                // 按住 A 键并滑动/点击格子
-                cell.addEventListener('mouseenter', () => {
-                    if (isAPressed && isMouseDown) {
-                        if (!isMultiSelectMode) enterMultiSelectMode();
-                        addSelectCell(cell);
-                    }
-                });
-
-                cell.addEventListener('mousedown', () => {
-                    if (isAPressed) {
-                        if (!isMultiSelectMode) enterMultiSelectMode();
-                        addSelectCell(cell);
-                    }
-                });
-
-                cell.addEventListener('dblclick', (e) => {
-                    e.stopPropagation();
-                    if (activeHighlightCode !== null) {
-                        enterMultiSelectMode(cell);
-                    } else {
-                        currentEditingCell = cell;
-                        document.getElementById('modalColorSelect').value = cell.dataset.code;
-                        document.getElementById('colorModal').style.display = 'flex';
-                    }
-                });
-
-                gridContainer.appendChild(cell);
+                const initialMatched = getNearestMardColor(avgR, avgG, avgB, algo, selectedSkinCode);
+                rawPixels.push({ x, y, r: avgR, g: avgG, b: avgB, matched: initialMatched });
             }
         }
+
+        // 2. 判断是否开启色号限制聚类算法
+        let activePalette = MARD_PALETTE;
+        if (enableLimit) {
+            activePalette = reduceColorsToK(rawPixels, maxColorNum, algo);
+        }
+
+        // 3. 渲染生成的网格
+        const gridContainer = document.getElementById('beadGrid');
+        gridContainer.innerHTML = '';
+        gridContainer.style.gridTemplateColumns = `repeat(${gridW}, 20px)`;
+        gridContainer.style.gridTemplateRows = `repeat(${gridH}, 20px)`;
+
+        activeHighlightCode = null;
+
+        rawPixels.forEach((pixel) => {
+            const x = pixel.x;
+            const y = pixel.y;
+
+            // 如果启用了限制算法，重新在精简后的调色板中寻找最近色彩
+            const matchedColor = enableLimit ? 
+                getNearestMardColor(pixel.r, pixel.g, pixel.b, algo, selectedSkinCode, activePalette) : 
+                pixel.matched;
+
+            const cell = document.createElement('div');
+            cell.className = 'cell';
+            
+            if (isThick) {
+                if ((x + 1) % thickStep === 0 && (x + 1) !== gridW) cell.classList.add('thick-right');
+                if ((y + 1) % thickStep === 0 && (y + 1) !== gridH) cell.classList.add('thick-bottom');
+            }
+
+            cell.dataset.code = matchedColor.code;
+            cell.style.backgroundColor = `rgb(${matchedColor.r}, ${matchedColor.g}, ${matchedColor.b})`;
+
+            const brightness = (matchedColor.r * 299 + matchedColor.g * 587 + matchedColor.b * 114) / 1000;
+            cell.style.color = brightness > 128 ? '#000000' : '#ffffff';
+
+            if (showText) cell.innerText = matchedColor.code;
+            cell.title = `坐标: (${x + 1}, ${y + 1})\n色号: ${matchedColor.code}`;
+
+            cell.addEventListener('click', () => {
+                if (isMultiSelectMode) {
+                    toggleSelectCell(cell);
+                } else {
+                    toggleHighlight(cell.dataset.code);
+                }
+            });
+
+            // 按住 A 键滑动选择
+            cell.addEventListener('mouseenter', () => {
+                if (isAPressed && isMouseDown) {
+                    if (!isMultiSelectMode) enterMultiSelectMode();
+                    addSelectCell(cell);
+                }
+            });
+
+            cell.addEventListener('mousedown', () => {
+                if (isAPressed) {
+                    if (!isMultiSelectMode) enterMultiSelectMode();
+                    addSelectCell(cell);
+                }
+            });
+
+            cell.addEventListener('dblclick', (e) => {
+                e.stopPropagation();
+                if (activeHighlightCode !== null) {
+                    enterMultiSelectMode(cell);
+                } else {
+                    currentEditingCell = cell;
+                    document.getElementById('modalColorSelect').value = cell.dataset.code;
+                    document.getElementById('colorModal').style.display = 'flex';
+                }
+            });
+
+            gridContainer.appendChild(cell);
+        });
 
         refreshStats();
     };
@@ -1152,7 +1275,8 @@ document.getElementById('downloadBtn').addEventListener('click', () => {
     const gridW = parseInt(document.getElementById('gridWidth').value);
     const gridH = parseInt(document.getElementById('gridHeight').value);
     const isThick = document.getElementById('toggleThickGrid').checked;
-    
+    const thickStep = parseInt(document.getElementById('thickStepInput').value) || 5;
+
     const cellSize = 36;
     const axisSize = 30;
 
@@ -1197,14 +1321,14 @@ document.getElementById('downloadBtn').addEventListener('click', () => {
 
     for (let x = 1; x <= gridW; x++) {
         const posX = axisSize + (x - 0.5) * cellSize;
-        const isFive = isThick && (x % 5 === 0);
+        const isFive = isThick && (x % thickStep === 0);
         ctx.fillStyle = isFive ? '#fffa65' : '#ffffff';
         ctx.fillText(x.toString(), posX, offsetY + axisSize / 2);
     }
 
     for (let y = 1; y <= gridH; y++) {
         const posY = offsetY + axisSize + (y - 0.5) * cellSize;
-        const isFive = isThick && (y % 5 === 0);
+        const isFive = isThick && (y % thickStep === 0);
         ctx.fillStyle = isFive ? '#fffa65' : '#ffffff';
         ctx.fillText(y.toString(), axisSize / 2, posY);
     }
@@ -1234,7 +1358,7 @@ document.getElementById('downloadBtn').addEventListener('click', () => {
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = 3;
 
-        for (let x = 5; x < gridW; x += 5) {
+        for (let x = thickStep; x < gridW; x += thickStep) {
             const lineX = axisSize + x * cellSize;
             ctx.beginPath();
             ctx.moveTo(lineX, offsetY + axisSize);
@@ -1242,7 +1366,7 @@ document.getElementById('downloadBtn').addEventListener('click', () => {
             ctx.stroke();
         }
 
-        for (let y = 5; y < gridH; y += 5) {
+        for (let y = thickStep; y < gridH; y += thickStep) {
             const lineY = offsetY + axisSize + y * cellSize;
             ctx.beginPath();
             ctx.moveTo(axisSize, lineY);
